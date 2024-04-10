@@ -1,3 +1,23 @@
+// The needs here are simple but there's detail:
+//
+//  - there will be no input piped to the subprocess
+//  - the subprocess may produce a lot of output and the pipes may fill up
+//  - the subprocess communicates on both stdout and stderr
+//  - while the subprocess is communicating we also want to listen for a timeout
+//  - if we get a timeout we want to stop the subprocess
+//  - we do not want to hang until the timeout "just in case", but end as quickly as
+//    the subprocess completes
+//  - we need to wait(2) for the subprocess when it's done
+//
+// Probably:
+//
+//  - the main thread reads from an std::sync::mpsc channel
+//  - data on the channel are either process results or timeouts
+//  - there is a thread that performs a wait
+//  - there is a thread that reads from the child (or possibly one each for stdin and stderr)
+//  - when the main thread gets a process result it can finish that and exit, the sleeping thread will be killed
+//  - the sleeping thread must handle an error where it posts to a closed channel
+
 use std::io;
 use std::time::Duration;
 use subprocess::{Exec, ExitStatus, Redirection};

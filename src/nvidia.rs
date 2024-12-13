@@ -2,6 +2,7 @@
 
 use crate::command::{self, CmdError};
 use crate::gpu;
+use crate::nvidia_nvml;
 use crate::ps::UserTable;
 use crate::util;
 use crate::TIMEOUT_SECONDS;
@@ -38,15 +39,19 @@ impl gpu::GPU for NvidiaGPU {
     }
 
     fn get_card_configuration(&mut self) -> Result<Vec<gpu::Card>, String> {
-        if self.info.is_none() {
-            self.info = Some(get_nvidia_configuration(&["-a"]))
-        }
-        match self.info.as_ref().unwrap() {
-            Ok(data) => Ok(data
-                .iter()
-                .map(|pc| pc.info.clone())
-                .collect::<Vec<gpu::Card>>()),
-            Err(e) => Err(e.clone()),
+        if let Some(info) = nvidia_nvml::get_cards() {
+            Ok(info)
+        } else {
+            if self.info.is_none() {
+                self.info = Some(get_nvidia_configuration(&["-a"]))
+            }
+            match self.info.as_ref().unwrap() {
+                Ok(data) => Ok(data
+                               .iter()
+                               .map(|pc| pc.info.clone())
+                               .collect::<Vec<gpu::Card>>()),
+                Err(e) => Err(e.clone()),
+            }
         }
     }
 

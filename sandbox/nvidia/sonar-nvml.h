@@ -19,7 +19,10 @@ int nvml_device_get_count(uint32_t* count);
 /* The architecture is a well-defined number, see nvml.h */
 int nvml_device_get_architecture(uint32_t device, uint32_t* arch);
 
-/* The unit is 'bytes' */
+/* The unit is 'bytes'. */
 int nvml_device_get_memory_info(uint32_t device, uint64_t* total, uint64_t* used, uint64_t* free);
+
+/* The buffer should be at least 96 bytes, or the output may be chopped. */
+int nvml_device_get_name(uint32_t device, char* buf, size_t bufsiz);
 
 #endif /* sonar_nvml_h_included */

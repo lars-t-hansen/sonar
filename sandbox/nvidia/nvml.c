@@ -22,6 +22,12 @@ int main(int argv, char** argc) {
     printf("device_get_count: %u\n", ndev);
 
     for (uint32_t i=0 ; i < ndev; i++) {
+        char buf[128];
+        if (nvml_device_get_name(i, buf, sizeof(buf)) != 0) {
+            panic("device_get_name");
+        }
+        printf("device_get_name %s\n", buf);
+
         uint32_t arch;
         if (nvml_device_get_architecture(i, &arch) != 0) {
             panic("device_get_architecture");
@@ -32,7 +38,8 @@ int main(int argv, char** argc) {
         if (nvml_device_get_memory_info(i, &total, &used, &free) != 0) {
             panic("device_get_memory_info");
         }
-        printf("device_get_memory_info %llu %llu %llu\n", total, used, free);
+        printf("device_get_memory_info %llu %llu %llu\n",
+               (unsigned long long)total, (unsigned long long)used, (unsigned long long)free);
     }
 
     nvml_close();

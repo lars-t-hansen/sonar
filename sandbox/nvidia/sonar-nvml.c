@@ -22,6 +22,8 @@ static nvmlReturn_t (*xnvmlDeviceGetHandleByIndex_v2)(int index, nvmlDevice_t* d
 static nvmlReturn_t (*xnvmlDeviceGetArchitecture)(nvmlDevice_t, nvmlDeviceArchitecture_t*);
 static nvmlReturn_t (*xnvmlDeviceGetMemoryInfo)(nvmlDevice_t, nvmlMemory_t*);
 static nvmlReturn_t (*xnvmlDeviceGetName)(nvmlDevice_t,char*,unsigned);
+static nvmlReturn_t (*xnvmlDeviceGetUUID)(nvmlDevice_t,char*,unsigned);
+static nvmlReturn_t (*xnvmlSystemGetDriverVersion)(char*,unsigned);
 
 static int is_open;
 
@@ -105,6 +107,30 @@ int nvml_device_get_name(uint32_t device, char* buf, size_t bufsiz) {
     return 0;
 }
 
+int nvml_device_get_uuid(uint32_t device, char* buf, size_t bufsiz) {
+    if (!is_open) {
+        return -1;
+    }
+    nvmlDevice_t dev;
+    if (xnvmlDeviceGetHandleByIndex_v2(device, &dev) != 0) {
+        return -1;
+    }
+    if (xnvmlDeviceGetUUID(dev, buf, (unsigned)bufsiz) != 0) {
+        return -1;
+    }
+    return 0;
+}
+
+int nvml_system_get_driver_version(char* buf, size_t bufsiz) {
+    if (!is_open) {
+        return -1;
+    }
+    if (xnvmlSystemGetDriverVersion(buf, (unsigned)bufsiz) != 0) {
+        return -1;
+    }
+    return 0;
+}
+
 // dynamic library management
 
 static void* lib;
@@ -136,6 +162,12 @@ static int load_nvml() {
         return -1;
     }
     if ((xnvmlDeviceGetName = lookup("nvmlDeviceGetName")) == NULL) {
+        return -1;
+    }
+    if ((xnvmlDeviceGetUUID = lookup("nvmlDeviceGetUUID")) == NULL) {
+        return -1;
+    }
+    if ((xnvmlSystemGetDriverVersion = lookup("nvmlSystemGetDriverVersion")) == NULL) {
         return -1;
     }
     return 0;

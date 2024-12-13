@@ -22,6 +22,14 @@ extern "C" {
         device: cty::uint32_t,
         buf: *mut cty::c_char,
         bufsiz: cty::size_t) -> cty::c_int;
+
+    pub fn nvml_device_get_uuid(
+        device: cty::uint32_t,
+        buf: *mut cty::c_char,
+        bufsiz: cty::size_t) -> cty::c_int;
+
+    pub fn nvml_system_get_driver_version(
+        buf: *mut cty::c_char, bufsiz: cty::size_t) -> cty::c_int;
 }
 
 pub fn get_cards() -> Option<Vec<gpu::Card>> {
@@ -34,6 +42,20 @@ pub fn get_cards() -> Option<Vec<gpu::Card>> {
         unsafe { nvml_close() };
         return None;
     }
+
+    let driver = {
+        const SIZE: usize = 128;
+        let mut buffer = vec![0i8; SIZE];
+        unsafe {
+            if nvml_system_get_driver_version(buffer.as_mut_ptr(), SIZE) == 0 {
+                CStr::from_ptr(buffer.as_ptr())
+                    .to_str()
+                    .expect("Will always be utf8")
+            } else {
+                "(unknown)"
+            }.to_string()
+        }
+    };
 
     let mut result = vec![];
     for dev in 0..num_devices {
@@ -87,14 +109,28 @@ pub fn get_cards() -> Option<Vec<gpu::Card>> {
             }
         };
 
+        let uuid = {
+            const SIZE: usize = 128;
+            let mut buffer = vec![0i8; SIZE];
+            unsafe {
+                if nvml_device_get_uuid(dev, buffer.as_mut_ptr(), SIZE) == 0 {
+                    CStr::from_ptr(buffer.as_ptr())
+                        .to_str()
+                        .expect("Will always be utf8")
+                } else {
+                    "(unknown)"
+                }.to_string()
+            }
+        };
+
         result.push(gpu::Card{
             bus_addr: "".to_string(), // FIXME
             index: dev as i32,
             model,
             arch,
-            driver: "".to_string(), // FIXME
+            driver: driver.clone(),
             firmware: "".to_string(), // FIXME
-            uuid: "".to_string(), // FIXME
+            uuid,
             mem_size_kib,
             power_limit_watt: 0, // FIXME
             max_power_limit_watt: 0, // FIXME

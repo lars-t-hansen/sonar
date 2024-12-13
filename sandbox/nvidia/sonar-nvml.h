@@ -25,4 +25,10 @@ int nvml_device_get_memory_info(uint32_t device, uint64_t* total, uint64_t* used
 /* The buffer should be at least 96 bytes, or the output may be chopped. */
 int nvml_device_get_name(uint32_t device, char* buf, size_t bufsiz);
 
+/* The buffer should be at least 96 bytes, or the output may be chopped. */
+int nvml_device_get_uuid(uint32_t device, char* buf, size_t bufsiz);
+
+/* The buffer should be at least 80 bytes, or the output may be chopped. */
+int nvml_system_get_driver_version(char* buf, size_t bufsiz);
+
 #endif /* sonar_nvml_h_included */

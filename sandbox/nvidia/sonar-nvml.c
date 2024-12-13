@@ -23,6 +23,7 @@ static nvmlReturn_t (*xnvmlDeviceGetArchitecture)(nvmlDevice_t, nvmlDeviceArchit
 static nvmlReturn_t (*xnvmlDeviceGetMemoryInfo)(nvmlDevice_t, nvmlMemory_t*);
 static nvmlReturn_t (*xnvmlDeviceGetName)(nvmlDevice_t,char*,unsigned);
 static nvmlReturn_t (*xnvmlDeviceGetUUID)(nvmlDevice_t,char*,unsigned);
+static nvmlReturn_t (*xnvmlDeviceGetPowerManagementLimitConstraints)(nvmlDevice_t,unsigned*,unsigned*);
 static nvmlReturn_t (*xnvmlSystemGetDriverVersion)(char*,unsigned);
 
 static int is_open;
@@ -131,6 +132,24 @@ int nvml_system_get_driver_version(char* buf, size_t bufsiz) {
     return 0;
 }
 
+int nvml_device_get_power_management_limit_constraints(
+    uint32_t device, uint32_t* min_limit, uint32_t* max_limit) {
+    if (!is_open) {
+        return -1;
+    }
+    nvmlDevice_t dev;
+    if (xnvmlDeviceGetHandleByIndex_v2(device, &dev) != 0) {
+        return -1;
+    }
+    unsigned in, ax;
+    if (xnvmlDeviceGetPowerManagementLimitConstraints(dev, &in, &ax) != 0) {
+        return -1;
+    }
+    *min_limit = (uint32_t)in;
+    *max_limit = (uint32_t)ax;
+    return 0;
+}
+
 // dynamic library management
 
 static void* lib;
@@ -146,30 +165,22 @@ static void* lookup(const char* sym) {
 }
 
 static int load_nvml() {
-    if ((xnvmlInit = lookup("nvmlInit")) == NULL) {
-        return -1;
-    }
-    if ((xnvmlDeviceGetCount_v2 = lookup("nvmlDeviceGetCount_v2")) == NULL) {
-        return -1;
-    }
-    if ((xnvmlDeviceGetHandleByIndex_v2 = lookup("nvmlDeviceGetHandleByIndex_v2")) == NULL) {
-        return -1;
-    }
-    if ((xnvmlDeviceGetArchitecture = lookup("nvmlDeviceGetArchitecture")) == NULL) {
-        return -1;
-    }
-    if ((xnvmlDeviceGetMemoryInfo = lookup("nvmlDeviceGetMemoryInfo")) == NULL) {
-        return -1;
-    }
-    if ((xnvmlDeviceGetName = lookup("nvmlDeviceGetName")) == NULL) {
-        return -1;
-    }
-    if ((xnvmlDeviceGetUUID = lookup("nvmlDeviceGetUUID")) == NULL) {
-        return -1;
-    }
-    if ((xnvmlSystemGetDriverVersion = lookup("nvmlSystemGetDriverVersion")) == NULL) {
-        return -1;
-    }
+
+    /* You'll be tempted to try some magic here with # and ## but it won't work because sometimes
+       nvml.h introduces #defines of some of the names we want to use. */
+
+#define DLSYM(var, str) if ((var = lookup(str)) == NULL) { return -1; }
+
+    DLSYM(xnvmlInit, "nvmlInit");
+    DLSYM(xnvmlDeviceGetCount_v2, "nvmlDeviceGetCount_v2");
+    DLSYM(xnvmlDeviceGetHandleByIndex_v2, "nvmlDeviceGetHandleByIndex_v2");
+    DLSYM(xnvmlDeviceGetArchitecture, "nvmlDeviceGetArchitecture");
+    DLSYM(xnvmlDeviceGetMemoryInfo, "nvmlDeviceGetMemoryInfo");
+    DLSYM(xnvmlDeviceGetName, "nvmlDeviceGetName");
+    DLSYM(xnvmlDeviceGetUUID, "nvmlDeviceGetUUID");
+    DLSYM(xnvmlSystemGetDriverVersion, "nvmlSystemGetDriverVersion");
+    DLSYM(xnvmlDeviceGetPowerManagementLimitConstraints, "nvmlDeviceGetPowerManagementLimitConstraints");
+
     return 0;
 }
 

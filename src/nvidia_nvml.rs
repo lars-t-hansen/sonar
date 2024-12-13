@@ -28,6 +28,11 @@ extern "C" {
         buf: *mut cty::c_char,
         bufsiz: cty::size_t) -> cty::c_int;
 
+    pub fn nvml_device_get_power_management_limit_constraints(
+        device: cty::uint32_t,
+        min: *mut cty::uint32_t,
+        max: *mut cty::uint32_t) -> cty::c_int;
+
     pub fn nvml_system_get_driver_version(
         buf: *mut cty::c_char, bufsiz: cty::size_t) -> cty::c_int;
 }
@@ -123,6 +128,17 @@ pub fn get_cards() -> Option<Vec<gpu::Card>> {
             }
         };
 
+        let (plmin, plmax) = {
+            let mut plmin: cty::uint32_t = 0;
+            let mut plmax: cty::uint32_t = 0;
+            if unsafe { nvml_device_get_power_management_limit_constraints(
+                dev, &mut plmin, &mut plmax) } == 0 {
+                ((plmin / 1000) as i32, (plmax / 1000) as i32)
+            } else {
+                (0, 0)
+            }
+        };
+
         result.push(gpu::Card{
             bus_addr: "".to_string(), // FIXME
             index: dev as i32,
@@ -133,8 +149,8 @@ pub fn get_cards() -> Option<Vec<gpu::Card>> {
             uuid,
             mem_size_kib,
             power_limit_watt: 0, // FIXME
-            max_power_limit_watt: 0, // FIXME
-            min_power_limit_watt: 0, // FIXME
+            max_power_limit_watt: plmin,
+            min_power_limit_watt: plmax,
             max_ce_clock_mhz: 0, // FIXME
             max_mem_clock_mhz: 0, // FIXME
         })

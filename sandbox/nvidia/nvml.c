@@ -53,6 +53,12 @@ int main(int argv, char** argc) {
         }
         printf("  mem  tot=%llu used=%llu free=%llu\n",
                (unsigned long long)total, (unsigned long long)used, (unsigned long long)free);
+
+        uint32_t plmin, plmax;
+        if (nvml_device_get_power_management_limit_constraints(i, &plmin, &plmax) != 0) {
+            panic("device_get_power_management_limit_constraints");
+        }
+        printf("  powr min=%d max=%d\n", plmin, plmax);
     }
 
     nvml_close();

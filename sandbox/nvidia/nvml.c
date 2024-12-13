@@ -1,77 +1,39 @@
-/* Remember to `module load CUDA/11.1.1-GCC-10.2.0` or similar for nvml.h */
-/* It would be possible to link with nvml but generally it's better to dlopen? */
-
 #include <stddef.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <dlfcn.h>
+#include <inttypes.h>
 
-#include <nvml.h>
+#include "sonar-nvml.h"
 
-void loadNVML();
-
-nvmlReturn_t (*xnvmlInit)();
-nvmlReturn_t (*xnvmlDeviceGetCount_v2)(unsigned*);
-nvmlReturn_t (*xnvmlDeviceGetHandleByIndex_v2)(int index, nvmlDevice_t* dev);
-nvmlReturn_t (*xnvmlDeviceGetArchitecture)(nvmlDevice_t, nvmlDeviceArchitecture_t*);
-nvmlReturn_t (*xnvmlDeviceGetMemoryInfo)(nvmlDevice_t, nvmlMemory_t*);
+void panic(const char* s) {
+    fprintf(stderr, "panic: %s\n", s);
+    exit(1);
+}
 
 int main(int argv, char** argc) {
-    loadNVML();
-    int r = xnvmlInit();
-    printf("Init: %d\n", r);
-    unsigned ndev;
-    r = xnvmlDeviceGetCount_v2(&ndev);
-    printf("DeviceGetCount: %d %u\n", r, ndev);
-    for (int i=0 ; i < ndev; i++) {
-        nvmlDevice_t dev;
-        r = xnvmlDeviceGetHandleByIndex_v2(i, &dev);
-
-        nvmlDeviceArchitecture_t arch;
-        r = xnvmlDeviceGetArchitecture(dev, &arch);
-        printf("Arch %d %u\n", i, arch);
-
-        nvmlMemory_t mem;
-        r = xnvmlDeviceGetMemoryInfo(dev, &mem);
-        printf("  Mem %llu %llu %llu\n", mem.free, mem.total, mem.used);
+    if (nvml_open() != 0) {
+        panic("Could not load");
     }
-}
 
-/* abstraction around nvml */
+    uint32_t ndev;
+    if (nvml_device_get_count(&ndev) != 0) {
+        panic("device_get_count");
+    }
+    printf("device_get_count: %u\n", ndev);
 
-void* lookup(const char* sym);
-
-void loadNVML() {
-    xnvmlInit = lookup("nvmlInit");
-    xnvmlDeviceGetCount_v2 = lookup("nvmlDeviceGetCount_v2");
-    xnvmlDeviceGetHandleByIndex_v2 = lookup("nvmlDeviceGetHandleByIndex_v2");
-    xnvmlDeviceGetArchitecture = lookup("nvmlDeviceGetArchitecture");
-    xnvmlDeviceGetMemoryInfo = lookup("nvmlDeviceGetMemoryInfo");
-}
-
-void* lib;
-
-void endlib() {
-    dlclose(lib);
-}
-
-void ensurelib() {
-    if (lib == NULL) {
-        lib = dlopen("/usr/lib64/libnvidia-ml.so", RTLD_NOW);
-        if (lib == NULL) {
-            perror("dlopen");
-            exit(1);
+    for (uint32_t i=0 ; i < ndev; i++) {
+        uint32_t arch;
+        if (nvml_device_get_architecture(i, &arch) != 0) {
+            panic("device_get_architecture");
         }
-        atexit(endlib);
-    }
-}
+        printf("device_get_architecture %u %u\n", i, arch);
 
-void* lookup(const char* sym) {
-    ensurelib();
-    void *p = dlsym(lib, sym);
-    if (p == NULL) {
-        fprintf(stderr, "dlsym: %s\n", dlerror());
-        exit(1);
+        uint64_t total, used, free;
+        if (nvml_device_get_memory_info(i, &total, &used, &free) != 0) {
+            panic("device_get_memory_info");
+        }
+        printf("device_get_memory_info %llu %llu %llu\n", total, used, free);
     }
-    return p;
+
+    nvml_close();
 }

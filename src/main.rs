@@ -7,6 +7,7 @@ mod interrupt;
 mod jobs;
 mod log;
 mod nvidia;
+mod nvidia_nvml;
 mod procfs;
 mod procfsapi;
 mod ps;
@@ -75,6 +76,8 @@ enum Commands {
 }
 
 fn main() {
+    nvidia_nvml::experiment();
+
     // Obtain the time stamp early so that it more properly reflects the time the sample was
     // obtained, not the time when reporting was allowed to run.  The latter is subject to greater
     // system effects, and using that timestamp increases the risk that the samples' timestamp order

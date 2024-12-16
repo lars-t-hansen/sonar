@@ -59,6 +59,18 @@ int main(int argv, char** argc) {
             panic("device_get_power_management_limit_constraints");
         }
         printf("  powr min=%d max=%d\n", plmin, plmax);
+
+        printf(" ---\n");
+        struct card_info infobuf;
+        if (nvml_device_get_card_info(i, &infobuf) != 0) {
+            panic("nvml_device_get_card_info");
+        }
+        printf("  name %s\n", infobuf.model);
+        printf("  uuid %s\n", infobuf.uuid);
+        printf("  arch %s\n", infobuf.architecture);
+        printf("  mem  tot=%llu\n", (unsigned long long)infobuf.totalmem/1024);
+        printf("  powr min=%u max=%u\n", infobuf.min_power_limit/1000, infobuf.max_power_limit/1000);
+
     }
 
     nvml_close();

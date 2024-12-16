@@ -39,9 +39,10 @@ impl gpu::GPU for NvidiaGPU {
     }
 
     fn get_card_configuration(&mut self) -> Result<Vec<gpu::Card>, String> {
-        if let Some(info) = nvidia_nvml::get_cards() {
+        if let Some(info) = nvidia_nvml::get_card_configuration() {
             Ok(info)
         } else {
+            println!("FALLBACK!!");
             if self.info.is_none() {
                 self.info = Some(get_nvidia_configuration(&["-a"]))
             }
@@ -59,19 +60,29 @@ impl gpu::GPU for NvidiaGPU {
         &mut self,
         user_by_pid: &UserTable,
     ) -> Result<Vec<gpu::Process>, String> {
-        get_nvidia_utilization(user_by_pid)
+        if let Some(info) = nvidia_nvml::get_process_utilization(user_by_pid) {
+            Ok(info)
+        } else {
+            println!("FALLBACK!!");
+            get_nvidia_utilization(user_by_pid)
+        }
     }
 
     fn get_card_utilization(&mut self) -> Result<Vec<gpu::CardState>, String> {
-        if self.info.is_none() {
-            self.info = Some(get_nvidia_configuration(&["-a"]))
-        }
-        match self.info.as_ref().unwrap() {
-            Ok(data) => Ok(data
-                .iter()
-                .map(|pc| pc.state.clone())
-                .collect::<Vec<gpu::CardState>>()),
-            Err(e) => Err(e.clone()),
+        if let Some(info) = nvidia_nvml::get_card_utilization() {
+            Ok(info)
+        } else {
+            println!("FALLBACK!!");
+            if self.info.is_none() {
+                self.info = Some(get_nvidia_configuration(&["-a"]))
+            }
+            match self.info.as_ref().unwrap() {
+                Ok(data) => Ok(data
+                               .iter()
+                               .map(|pc| pc.state.clone())
+                               .collect::<Vec<gpu::CardState>>()),
+                Err(e) => Err(e.clone()),
+            }
         }
     }
 }

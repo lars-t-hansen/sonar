@@ -48,9 +48,9 @@ impl gpu::GPU for NvidiaGPU {
             }
             match self.info.as_ref().unwrap() {
                 Ok(data) => Ok(data
-                               .iter()
-                               .map(|pc| pc.info.clone())
-                               .collect::<Vec<gpu::Card>>()),
+                    .iter()
+                    .map(|pc| pc.info.clone())
+                    .collect::<Vec<gpu::Card>>()),
                 Err(e) => Err(e.clone()),
             }
         }
@@ -78,9 +78,9 @@ impl gpu::GPU for NvidiaGPU {
             }
             match self.info.as_ref().unwrap() {
                 Ok(data) => Ok(data
-                               .iter()
-                               .map(|pc| pc.state.clone())
-                               .collect::<Vec<gpu::CardState>>()),
+                    .iter()
+                    .map(|pc| pc.state.clone())
+                    .collect::<Vec<gpu::CardState>>()),
                 Err(e) => Err(e.clone()),
             }
         }

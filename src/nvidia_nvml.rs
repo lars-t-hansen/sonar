@@ -1,6 +1,6 @@
 use crate::gpu;
-use std::ffi::CStr;
 use crate::ps::UserTable;
+use std::ffi::CStr;
 
 ////// C library API //////////////////////////////////////////////////////////////////////////////
 
@@ -32,7 +32,7 @@ pub struct NvmlCardInfo {
 
 impl Default for NvmlCardInfo {
     fn default() -> Self {
-        Self{
+        Self {
             bus_addr: [0; 80],
             model: [0; 96],
             architecture: [0; 32],
@@ -50,9 +50,7 @@ impl Default for NvmlCardInfo {
 }
 
 extern "C" {
-    pub fn nvml_device_get_card_info(
-        device: cty::uint32_t,
-        buf: *mut NvmlCardInfo) -> cty::c_int;
+    pub fn nvml_device_get_card_info(device: cty::uint32_t, buf: *mut NvmlCardInfo) -> cty::c_int;
 }
 
 #[repr(C)]
@@ -73,7 +71,7 @@ pub struct NvmlCardState {
 
 impl Default for NvmlCardState {
     fn default() -> Self {
-        Self{
+        Self {
             fan_speed: 0,
             compute_mode: [0; 32],
             perf_state: [0; 8],
@@ -91,9 +89,8 @@ impl Default for NvmlCardState {
 }
 
 extern "C" {
-    pub fn nvml_device_get_card_state(
-        device: cty::uint32_t,
-        buf: *mut NvmlCardState) -> cty::c_int;
+    pub fn nvml_device_get_card_state(device: cty::uint32_t, buf: *mut NvmlCardState)
+        -> cty::c_int;
 }
 
 ////// End C library API //////////////////////////////////////////////////////
@@ -110,10 +107,10 @@ pub fn get_card_configuration() -> Option<Vec<gpu::Card>> {
     }
 
     let mut result = vec![];
-    let mut infobuf : NvmlCardInfo = Default::default();
+    let mut infobuf: NvmlCardInfo = Default::default();
     for dev in 0..num_devices {
         if unsafe { nvml_device_get_card_info(dev, &mut infobuf) } == 0 {
-            result.push(gpu::Card{
+            result.push(gpu::Card {
                 bus_addr: cstrdup(&infobuf.bus_addr),
                 index: dev as i32,
                 model: cstrdup(&infobuf.model),
@@ -174,10 +171,10 @@ pub fn get_card_utilization() -> Option<Vec<gpu::CardState>> {
     }
 
     let mut result = vec![];
-    let mut infobuf : NvmlCardState = Default::default();
+    let mut infobuf: NvmlCardState = Default::default();
     for dev in 0..num_devices {
         if unsafe { nvml_device_get_card_state(dev, &mut infobuf) } == 0 {
-            result.push(gpu::CardState{
+            result.push(gpu::CardState {
                 index: dev as i32,
                 fan_speed_pct: infobuf.fan_speed as f32,
                 compute_mode: cstrdup(&infobuf.compute_mode),
@@ -206,7 +203,7 @@ pub fn get_card_utilization() -> Option<Vec<gpu::CardState>> {
 // TODO: Share this with the code in time.rs.
 fn cstrdup(s: &[i8]) -> String {
     unsafe { CStr::from_ptr(s.as_ptr()) }
-    .to_str()
+        .to_str()
         .expect("Will always be utf8")
         .to_string()
 }

@@ -3,13 +3,15 @@
 
 use crate::gpu;
 use crate::gpuset;
-use crate::hostname;
 use crate::interrupt;
-use crate::jobs;
 use crate::log;
 use crate::output;
 use crate::procfs;
-use crate::procfsapi;
+use crate::systemapi;
+#[cfg(test)]
+use crate::mocksystem;
+#[cfg(test)]
+use crate::mockjobs;
 use crate::util::three_places;
 
 use std::collections::HashMap;
@@ -144,9 +146,8 @@ pub struct PsOptions<'a> {
 
 pub fn create_snapshot(
     writer: &mut dyn io::Write,
-    jobs: &mut dyn jobs::JobManager,
+    system: &dyn systemapi::SystemAPI,
     opts: &PsOptions,
-    timestamp: &str,
 ) {
     // If a lock file was requested, create one before the operation, exit early if it already
     // exists, and if we performed the operation, remove the file afterwards.  Otherwise, just
@@ -169,7 +170,7 @@ pub fn create_snapshot(
         let mut created = false;
         let mut failed = false;
         let mut skip = false;
-        let hostname = hostname::get();
+        let hostname = system.get_hostname();
 
         let mut p = PathBuf::new();
         p.push(dirname);
@@ -204,7 +205,7 @@ pub fn create_snapshot(
         }
 
         if !failed && !skip {
-            do_create_snapshot(writer, jobs, opts, timestamp);
+            do_create_snapshot(writer, system, opts);
 
             // Testing code: If we got the lockfile and produced a report, wait 10s after producing
             // it while holding onto the lockfile.  It is then possible to run sonar in that window
@@ -240,29 +241,26 @@ pub fn create_snapshot(
             log::error("Unable to properly manage or delete lockfile");
         }
     } else {
-        do_create_snapshot(writer, jobs, opts, timestamp);
+        do_create_snapshot(writer, system, opts);
     }
 }
 
 fn do_create_snapshot(
     writer: &mut dyn io::Write,
-    jobs: &mut dyn jobs::JobManager,
+    system: &dyn systemapi::SystemAPI,
     opts: &PsOptions,
-    timestamp: &str,
 ) {
-    let hostname = hostname::get();
+    let hostname = system.get_hostname();
     const VERSION: &str = env!("CARGO_PKG_VERSION");
     let print_params = PrintParameters {
         hostname: &hostname,
-        timestamp,
+        timestamp: &system.get_timestamp(),
         version: VERSION,
         flat_data: !opts.json,
         opts,
     };
 
-    let fs = procfsapi::RealFS::new();
-    let gpus = gpu::RealGpuAPI::new();
-    match collect_data(&fs, &gpus, jobs, &print_params) {
+    match collect_data(system, &print_params) {
         output::Value::A(elts) => {
             for i in 0..elts.len() {
                 output::write_csv(writer, elts.at(i));
@@ -286,12 +284,10 @@ fn do_create_snapshot(
 // print_params.flat_data.
 
 fn collect_data(
-    fs: &dyn procfsapi::ProcfsAPI,
-    gpus: &dyn gpu::GpuAPI,
-    jobs: &mut dyn jobs::JobManager,
+    system: &dyn systemapi::SystemAPI,
     print_params: &PrintParameters,
 ) -> output::Value {
-    match do_collect_data(fs, gpus, jobs, print_params) {
+    match do_collect_data(system, print_params) {
         Ok(output::Value::A(mut elts)) => {
             if elts.len() == 0 && print_params.opts.always_print_something {
                 elts.push_o(make_heartbeat(&print_params))
@@ -325,12 +321,13 @@ fn make_heartbeat(print_params: &PrintParameters) -> output::Object {
     fields
 }
 
-fn do_collect_data(
-    fs: &dyn procfsapi::ProcfsAPI,
-    gpus: &dyn gpu::GpuAPI,
-    jobs: &mut dyn jobs::JobManager,
+fn do_collect_data<'a>(
+    system: &dyn systemapi::SystemAPI,
     print_params: &PrintParameters,
 ) -> Result<output::Value, String> {
+    let fs = system.get_procfs();
+    let gpus = system.get_gpuapi();
+
     let no_gpus = gpuset::empty_gpuset();
     let mut proc_by_pid = ProcTable::new();
 
@@ -353,7 +350,7 @@ fn do_collect_data(
         user_by_pid.insert(proc.pid, (&proc.user, proc.uid));
     }
 
-    let mut lookup_job_by_pid = |pid: Pid| jobs.job_id_from_pid(pid, pprocinfo_output);
+    let mut lookup_job_by_pid = |pid: Pid| system.get_jobs().job_id_from_pid(pid, pprocinfo_output);
 
     for proc in pprocinfo_output.values() {
         add_proc_info(
@@ -802,17 +799,6 @@ fn generate_candidate(proc_info: &ProcInfo, print_params: &PrintParameters) -> o
     fields
 }
 
-#[cfg(test)]
-pub struct MockJobManager { }
-
-#[cfg(test)]
-impl jobs::JobManager for MockJobManager {
-    fn job_id_from_pid(&mut self, pid: usize, _processes: &HashMap<usize, procfs::Process>)
-        -> usize {
-        pid
-    }
-}
-
 #[test]
 pub fn collect_data_test() {
     let opts = Default::default();
@@ -823,14 +809,8 @@ pub fn collect_data_test() {
         flat_data: true,
         opts: &opts,
     };
-    let files = HashMap::new();
-    let pids = vec![];
-    let users = HashMap::new();
-    let now = procfsapi::unix_now();
-    let fs = procfsapi::MockFS::new(files, pids, users, now);
-    let gpus = gpu::MockGpuAPI::new();
-    let mut jobs = MockJobManager {};
-    match collect_data(&fs, &gpus, &mut jobs, &print_params) {
+    let system = mocksystem::MockSystem::new().with_jobmanager(Box::new(mockjobs::MockJobManager{}));
+    match collect_data(&system, &print_params) {
         // flat_data, so should be array
         output::Value::A(a) => {
             // No data, so this should be length 1

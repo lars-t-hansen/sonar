@@ -11,7 +11,7 @@ pub struct SlurmJobManager {}
 
 impl jobs::JobManager for SlurmJobManager {
     fn job_id_from_pid(
-        &mut self,
+        &self,
         pid: usize,
         _processes: &HashMap<usize, procfs::Process>,
     ) -> usize {

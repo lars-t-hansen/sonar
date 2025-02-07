@@ -19,7 +19,7 @@ impl BatchlessJobManager {
 
 impl jobs::JobManager for BatchlessJobManager {
     fn job_id_from_pid(
-        &mut self,
+        &self,
         proc_pid: usize,
         processes: &HashMap<usize, procfs::Process>,
     ) -> usize {
@@ -34,7 +34,7 @@ impl jobs::JobManager for BatchlessJobManager {
 
 #[test]
 fn test_batchless_jobs() {
-    let mut jm = BatchlessJobManager::new();
+    let jm = BatchlessJobManager::new();
     let procs = parsed_full_test_output();
     assert!(jm.job_id_from_pid(205415, &procs) == 205408);
     assert!(jm.job_id_from_pid(200, &procs) == 0); // lost process

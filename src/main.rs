@@ -10,6 +10,14 @@ mod hostname;
 mod interrupt;
 mod jobs;
 mod log;
+#[cfg(test)]
+mod mockgpu;
+#[cfg(test)]
+mod mockfs;
+#[cfg(test)]
+mod mockjobs;
+#[cfg(test)]
+mod mocksystem;
 #[cfg(feature = "nvidia")]
 mod nvidia;
 #[cfg(feature = "nvidia")]
@@ -18,9 +26,12 @@ mod output;
 mod procfs;
 mod procfsapi;
 mod ps;
+mod realgpu;
+mod realsystem;
 mod slurm;
 mod slurmjobs;
 mod sysinfo;
+mod systemapi;
 mod time;
 mod users;
 mod util;
@@ -95,16 +106,11 @@ enum Commands {
 }
 
 fn main() {
-    // Obtain the time stamp early so that it more properly reflects the time the sample was
-    // obtained, not the time when reporting was allowed to run.  The latter is subject to greater
-    // system effects, and using that timestamp increases the risk that the samples' timestamp order
-    // improperly reflects the true order in which they were obtained.  See #100.
-    let timestamp = time::now_iso8601();
-
     log::init();
 
     let mut stdout = io::stdout();
     let writer: &mut dyn io::Write = &mut stdout;
+    let system = realsystem::RealSystem::new();
 
     match &command_line() {
         Commands::PS {
@@ -142,18 +148,20 @@ fn main() {
                 json: *json,
             };
             if *batchless {
-                let mut jm = batchless::BatchlessJobManager::new();
-                ps::create_snapshot(writer, &mut jm, &opts, &timestamp);
+                let jm = Box::new(batchless::BatchlessJobManager::new());
+                let system = system.with_jobmanager(jm);
+                ps::create_snapshot(writer, &system, &opts);
             } else {
-                let mut jm = slurm::SlurmJobManager {};
-                ps::create_snapshot(writer, &mut jm, &opts, &timestamp);
+                let jm = Box::new(slurm::SlurmJobManager {});
+                let system = system.with_jobmanager(jm);
+                ps::create_snapshot(writer, &system, &opts);
             }
         }
         Commands::Sysinfo { csv } => {
-            sysinfo::show_system(writer, &timestamp, *csv);
+            sysinfo::show_system(writer, &system, *csv);
         }
         Commands::Slurmjobs { window, span, json } => {
-            slurmjobs::show_slurm_jobs(writer, window, span, &timestamp, *json);
+            slurmjobs::show_slurm_jobs(writer, window, span, &system, *json);
         }
         Commands::Version {} => {
             show_version(writer);

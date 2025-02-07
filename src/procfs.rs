@@ -1,6 +1,9 @@
 /// Collect CPU process information without GPU information, from files in /proc.
 use crate::procfsapi::{self, parse_usize_field};
 
+#[cfg(test)]
+use crate::mockfs;
+
 use std::collections::{HashMap, HashSet};
 
 #[derive(PartialEq, Debug)]
@@ -602,7 +605,7 @@ DirectMap1G:    11534336 kB
         + (stime_ticks / ticks_per_sec)
         + 2000.0) as u64;
 
-    let fs = procfsapi::MockFS::new(files, pids, users, now);
+    let fs = mockfs::MockFS::new(files, pids, users, now);
     let memtotal_kib = get_memtotal_kib(&fs).expect("Test: Must have data");
     let (mut info, total_secs, per_cpu_secs) =
         get_process_information(&fs, memtotal_kib).expect("Test: Must have data");
@@ -675,7 +678,7 @@ pub fn procfs_dead_and_undead_test() {
     files.insert("4019/status".to_string(), "RssAnon: 12345 kB".to_string());
     files.insert("4020/status".to_string(), "RssAnon: 12345 kB".to_string());
 
-    let fs = procfsapi::MockFS::new(files, pids, users, procfsapi::unix_now());
+    let fs = mockfs::MockFS::new(files, pids, users, procfsapi::unix_now());
     let memtotal_kib = get_memtotal_kib(&fs).expect("Test: Must have data");
     let (mut info, _, _) =
         get_process_information(&fs, memtotal_kib).expect("Test: Must have data");
@@ -1150,7 +1153,7 @@ power management:
 "#.to_string());
     let pids = vec![];
     let users = HashMap::new();
-    let fs = procfsapi::MockFS::new(files, pids, users, procfsapi::unix_now());
+    let fs = mockfs::MockFS::new(files, pids, users, procfsapi::unix_now());
     let (model, sockets, cores, threads) = get_cpu_info(&fs).expect("Test: Must have data");
     assert!(model.find("E5-2637").is_some());
     assert!(sockets == 2);

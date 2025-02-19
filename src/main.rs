@@ -43,6 +43,9 @@ mod util;
 #[cfg(feature = "xpu")]
 mod xpu;
 
+use std::time::Duration;
+use kafka::producer::{Producer, Record, RequiredAcks};
+
 use std::io;
 
 const USAGE_ERROR: i32 = 2; // clap, Python, Go
@@ -110,11 +113,14 @@ enum Commands {
     Version {},
 }
 
+const kafka : bool = true;
+
 fn main() {
     log::init();
 
     let mut stdout = io::stdout();
-    let writer: &mut dyn io::Write = &mut stdout;
+    let mut output = Vec::new();
+    let writer: &mut dyn io::Write = if kafka { &mut output } else { &mut stdout };
     let system = realsystem::RealSystem::new();
 
     match &command_line() {
@@ -169,7 +175,19 @@ fn main() {
             show_version(writer);
         }
     }
+
     let _ = writer.flush();
+
+    if kafka {
+        let s = String::from_utf8_lossy(&output);
+        let mut producer =
+            Producer::from_hosts(vec!("localhost:9092".to_owned()))
+            .with_ack_timeout(Duration::from_secs(1))
+            .with_required_acks(RequiredAcks::One)
+            .create()
+            .unwrap();
+        producer.send(&Record::from_value("my-topic", s.as_bytes())).unwrap();
+    }
 }
 
 // For the sake of simplicity:

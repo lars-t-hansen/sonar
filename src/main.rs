@@ -43,6 +43,9 @@ mod util;
 #[cfg(feature = "xpu")]
 mod xpu;
 
+use std::time::Duration;
+use paho_mqtt as mqtt;
+
 use std::io;
 
 const USAGE_ERROR: i32 = 2; // clap, Python, Go
@@ -110,11 +113,14 @@ enum Commands {
     Version {},
 }
 
+const MQTT : bool = true;
+
 fn main() {
     log::init();
 
     let mut stdout = io::stdout();
-    let writer: &mut dyn io::Write = &mut stdout;
+    let mut output = Vec::new();
+    let writer: &mut dyn io::Write = if MQTT { &mut output } else { &mut stdout };
     let system = realsystem::RealSystem::new();
 
     match &command_line() {
@@ -169,7 +175,17 @@ fn main() {
             show_version(writer);
         }
     }
+
     let _ = writer.flush();
+
+    if MQTT {
+        let s = String::from_utf8_lossy(&output);
+        let cli = mqtt::AsyncClient::new("tcp://localhost:1883").unwrap();
+        let tok = cli.connect(mqtt::ConnectOptions::new());
+        tok.wait().unwrap();
+        let tok = cli.try_publish(mqtt::Message::new("sonar-data",s.to_string(),0)).unwrap();
+        tok.wait().unwrap();
+    }
 }
 
 // For the sake of simplicity:

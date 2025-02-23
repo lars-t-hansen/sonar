@@ -4,6 +4,8 @@ mod amd;
 mod amd_smi;
 mod batchless;
 mod command;
+#[cfg(feature = "daemon")]
+mod daemon;
 mod gpuapi;
 mod gpuset;
 mod hostname;
@@ -48,6 +50,11 @@ use std::io;
 const USAGE_ERROR: i32 = 2; // clap, Python, Go
 
 enum Commands {
+    /// Enter daemon mode.
+    #[cfg(feature = "daemon")]
+    DAEMON {
+        config_file: String,
+    },
     /// Take a snapshot of the currently running processes
     PS {
         /// Synthesize a job ID from the process tree in which a process finds itself
@@ -118,6 +125,19 @@ fn main() {
     let system = realsystem::RealSystem::new();
 
     match &command_line() {
+        #[cfg(feature = "daemon")]
+        Commands::DAEMON {
+            config_file,
+        } => {
+            // This ignores `writer`
+            match daemon::daemon_mode(config_file, system) {
+                Ok(_) => { }
+                Err(e) => {
+                    // TODO: Improve this
+                    eprintln!("ERROR: {e}");
+                }
+            }
+        }
         Commands::PS {
             rollup,
             batchless,
@@ -184,6 +204,20 @@ fn command_line() -> Commands {
         let command = args[next].as_ref();
         next += 1;
         match command {
+            #[cfg(feature = "daemon")]
+            "daemon" => {
+                if next >= args.len() {
+                    usage(true);
+                }
+                let config_file = args[next].to_string();
+                next += 1;
+                if next != args.len() {
+                    usage(true);
+                }
+                Commands::DAEMON {
+                    config_file,
+                }
+            }
             "ps" => {
                 let mut batchless = false;
                 let mut rollup = false;
@@ -393,10 +427,15 @@ fn usage(is_error: bool) -> ! {
 Usage: sonar <COMMAND>
 
 Commands:
+  daemon   Read configuration from file and stay resident
   ps       Print process and load information
   sysinfo  Print system information
   slurm    Print slurm job information for a [start,end) time interval
   help     Print this message
+
+Options for `daemon`:
+  filename
+      Configuration file from which to read commands, arguments, cadences.
 
 Options for `ps`:
   --batchless

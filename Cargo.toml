@@ -6,13 +6,19 @@ repository = "https://github.com/NordicHPC/sonar"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[dependencies]
+cty = "0.2.2"
+# Somebody forgot to properly tag kafka-rust aka kafka v0.10.0 in git.  The rev we're working from
+# appears to be 779981238d05364abf180dc4d06e60e107e8a0d9 or possibly
+# 32d9d6b7b8c7d8163b37063cdca7568c0fbe18ca - the former is just the merge commit, the latter is
+# marked "Version 0.10.0" in the commit message.
+kafka = { version = "0.10.0", optional = true }
+libc = "0.2"
+subprocess = { version = "= 0.2.9" }
+
 [features]
 nvidia = []
 amd = []
 xpu = []
-default = [ "nvidia", "amd" ]
-
-[dependencies]
-cty = "0.2.2"
-libc = "0.2"
-subprocess = { version = "= 0.2.9" }
+daemon = [ "kafka" ]
+default = [ "nvidia", "amd", "daemon" ]

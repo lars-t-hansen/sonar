@@ -11,6 +11,7 @@ use crate::systemapi;
 use crate::time;
 use crate::users;
 
+use std::cell::{Cell, RefCell};
 use std::fs;
 use std::io;
 use std::path;
@@ -34,7 +35,6 @@ impl RealSystemBuilder {
         let fs = realprocfs::RealProcFS::new();
         let boot_time = procfs::get_boot_time(&fs)?;
         Ok(RealSystem {
-            timestamp: time::now_iso8601(),
             hostname: hostname::get(),
             jm: if let Some(x) = self.jm {
                 x
@@ -43,19 +43,20 @@ impl RealSystemBuilder {
             },
             fs,
             gpus: realgpu::RealGpu::new(),
-            now: time::unix_now(),
+            timestamp: RefCell::new(time::now_iso8601()),
+            now: Cell::new(time::unix_now()),
             boot_time,
         })
     }
 }
 
 pub struct RealSystem {
-    timestamp: String,
     hostname: String,
     fs: realprocfs::RealProcFS,
     gpus: realgpu::RealGpu,
     jm: Box<dyn jobsapi::JobManager>,
-    now: u64,
+    timestamp: RefCell<String>,
+    now: Cell<u64>,
     boot_time: u64,
 }
 
@@ -71,7 +72,7 @@ impl systemapi::SystemAPI for RealSystem {
     }
 
     fn get_timestamp(&self) -> String {
-        self.timestamp.clone()
+        self.timestamp.borrow().clone()
     }
 
     fn get_hostname(&self) -> String {
@@ -109,7 +110,7 @@ impl systemapi::SystemAPI for RealSystem {
     }
 
     fn get_now_in_secs_since_epoch(&self) -> u64 {
-        self.now
+        self.now.get()
     }
 
     fn user_by_uid(&self, uid: u32) -> Option<String> {
@@ -158,5 +159,16 @@ impl systemapi::SystemAPI for RealSystem {
 
     fn is_interrupted(&self) -> bool {
         interrupt::is_interrupted()
+    }
+}
+
+impl RealSystem {
+    // We want the time to be stable (ie unchanging if we read it multiple times), but that also
+    // means that when it must move we must move it specifically.  This is not yet part of the
+    // SystemAPI because that's not been necessary.
+    #[cfg(feature = "daemon")]
+    pub fn update_time(&self) {
+        self.timestamp.replace(time::now_iso8601());
+        self.now.set(time::unix_now());
     }
 }

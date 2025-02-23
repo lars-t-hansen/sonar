@@ -3,11 +3,15 @@ mod amd;
 #[cfg(feature = "amd")]
 mod amd_smi;
 mod command;
+#[cfg(feature = "daemon")]
+mod daemon;
 mod gpuapi;
 mod gpuset;
 mod hostname;
 mod interrupt;
 mod jobsapi;
+#[cfg(all(feature = "daemon", feature = "kafka-kafka"))]
+mod kafka;
 mod log;
 #[cfg(test)]
 mod mockfs;
@@ -27,6 +31,8 @@ mod procfsapi;
 mod ps;
 #[cfg(test)]
 mod ps_test;
+#[cfg(all(feature = "daemon", feature = "kafka-rdkafka"))]
+mod rdkafka;
 mod realgpu;
 mod realprocfs;
 mod realsystem;
@@ -47,6 +53,11 @@ use std::io;
 const USAGE_ERROR: i32 = 2; // clap, Python, Go
 
 enum Commands {
+    /// Enter daemon mode.
+    #[cfg(feature = "daemon")]
+    DAEMON {
+        config_file: String,
+    },
     /// Take a snapshot of the currently running processes
     PS {
         /// Merge process records that have the same job ID and command name
@@ -113,7 +124,26 @@ fn main() {
     let writer: &mut dyn io::Write = &mut stdout;
     let system = realsystem::RealSystem::new();
 
+    #[cfg(debug_assertions)]
+    let force_slurm = std::env::var("SONARTEST_ROLLUP").is_ok();
+
+    #[cfg(not(debug_assertions))]
+    let force_slurm = false;
+
     match &command_line() {
+        #[cfg(feature = "daemon")]
+        Commands::DAEMON { config_file } => {
+            // This ignores `writer`, as the daemon manages its own I/O.
+            //
+            // The daemon returns early under specific conditions but once it's running it will only
+            // return with an Ok return and only when told to exit by a remote command or a signal.
+            match daemon::daemon_mode(config_file, system, force_slurm) {
+                Ok(_) => {}
+                Err(e) => {
+                    eprintln!("Daemon returned with error: {e}");
+                }
+            }
+        }
         Commands::PS {
             rollup,
             min_cpu_percent,
@@ -148,12 +178,6 @@ fn main() {
                 json: *json,
             };
 
-            #[cfg(debug_assertions)]
-            let force_slurm = std::env::var("SONARTEST_ROLLUP").is_ok();
-
-            #[cfg(not(debug_assertions))]
-            let force_slurm = false;
-
             let system = system.with_jobmanager(Box::new(jobsapi::AnyJobManager::new(force_slurm)));
             ps::create_snapshot(writer, &system.freeze().expect("System initialization"), &opts);
         }
@@ -182,6 +206,18 @@ fn command_line() -> Commands {
         let command = args[next].as_ref();
         next += 1;
         match command {
+            #[cfg(feature = "daemon")]
+            "daemon" => {
+                if next >= args.len() {
+                    usage(true);
+                }
+                let config_file = args[next].to_string();
+                next += 1;
+                if next != args.len() {
+                    usage(true);
+                }
+                Commands::DAEMON { config_file }
+            }
             "ps" => {
                 let mut rollup = false;
                 let mut min_cpu_percent = None;
@@ -380,10 +416,15 @@ fn usage(is_error: bool) -> ! {
 Usage: sonar <COMMAND>
 
 Commands:
+  daemon   Read configuration from file and stay resident
   ps       Print process and load information
   sysinfo  Print system information
   slurm    Print slurm job information for a [start,end) time interval
   help     Print this message
+
+Options for `daemon`:
+  filename
+      Configuration file from which to read commands, arguments, cadences.
 
 Options for `ps`:
   --rollup

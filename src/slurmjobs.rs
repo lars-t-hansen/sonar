@@ -20,55 +20,52 @@ pub fn show_slurm_jobs(
     window: &Option<u32>,
     span: &Option<String>,
     system: &dyn systemapi::SystemAPI,
-    json: bool,
+    new_json: bool,
 ) {
-    match collect_jobs(system, window, span, json) {
-        Ok(jobs) => print_jobs(writer, jobs, json),
-        Err(error) => print_error(writer, error, system, json),
-    }
-}
-
-fn print_jobs(writer: &mut dyn io::Write, jobs: output::Array, json: bool) {
-    if json {
-        let mut envelope = output::Object::new();
-        envelope.push_s("v", VERSION.to_string());
-        envelope.push_a("jobs", jobs);
-        output::write_json(writer, &output::Value::O(envelope));
-    } else {
-        for i in 0..jobs.len() {
-            output::write_csv(writer, jobs.at(i));
+    let embed_envelope = !new_json;
+    match collect_jobs(system, window, span, embed_envelope) {
+        Ok(jobs) => {
+            if new_json {
+                let mut envelope = output::newfmt_envelope(system);
+                let (mut data, mut attrs) = output::newfmt_data(system, "jobs");
+                attrs.push_a("jobs", jobs);
+                data.push_o("attributes", attrs);
+                envelope.push_o("data", data);
+                output::write_json(writer, &output::Value::O(envelope));
+            } else {
+                for i in 0..jobs.len() {
+                    output::write_csv(writer, jobs.at(i));
+                }
+            }
+        }
+        Err(error) => {
+            if new_json {
+                let mut envelope = output::newfmt_envelope(system);
+                envelope.push_a("errors", output::newfmt_one_error(system, error));
+                output::write_json(writer, &output::Value::O(envelope));
+            } else {
+                let mut envelope = output::Object::new();
+                envelope.push_s("v", VERSION.to_string());
+                envelope.push_s("error", error);
+                envelope.push_s("timestamp", system.get_timestamp());
+                output::write_csv(writer, &output::Value::O(envelope));
+            }
         }
     }
 }
 
-// For JSON, if there's an error, it gets placed in the envelope.  But for CSV, it needs to be
-// attached to the first record.  If that record does not exist, it needs to be synthesized.  The
-// field name is "error" in either case; this does not conflict with anything from Slurm.  But on
-// the back end, the ingestor needs to deal with a possibly synthesized record that has only that
-// field, and not assume that any particular field is present.
-
-fn print_error(
-    writer: &mut dyn io::Write,
-    error: String,
-    system: &dyn systemapi::SystemAPI,
-    json: bool,
-) {
-    let mut envelope = output::Object::new();
-    envelope.push_s("v", VERSION.to_string());
-    envelope.push_s("error", error);
-    envelope.push_s("timestamp", system.get_timestamp());
-    if json {
-        output::write_json(writer, &output::Value::O(envelope));
-    } else {
-        output::write_csv(writer, &output::Value::O(envelope));
-    }
-}
+// Run sacct, parse and collect data, and place in an array of jobs for output - it's the same array
+// for the old and new formats.
+//
+// However, in the old "flat" CSV format, the "envelope" data (version, timestamp, error) are
+// embedded in each record.  In collect_jobs() we only insert non-exceptional data, any errors are
+// inserted into the first record before formatting, if they occur.
 
 fn collect_jobs(
     system: &dyn systemapi::SystemAPI,
     window: &Option<u32>,
     span: &Option<String>,
-    json: bool,
+    embed_envelope: bool,
 ) -> Result<output::Array, String> {
     let (job_states, field_names) = parameters();
 
@@ -91,7 +88,7 @@ fn collect_jobs(
     match system.run_sacct(&job_states, &field_names, &from, &to) {
         Ok(sacct_output) => {
             let local = time::now_local();
-            Ok(parse_jobs(&sacct_output, &field_names, &local, !json))
+            Ok(parse_jobs(&sacct_output, &field_names, &local, embed_envelope))
         }
         Err(s) => Err(s),
     }
@@ -169,7 +166,7 @@ fn parse_jobs(
     sacct_output: &str,
     field_names: &[&str],
     local: &libc::tm,
-    version_per_line: bool,
+    embed_envelope: bool,
 ) -> output::Array {
     // Fields that are dates that may be reinterpreted before transmission.
     let date_fields = HashSet::from(["Start", "End", "Submit"]);
@@ -199,7 +196,9 @@ fn parse_jobs(
         let fields = &field_store[..field_names.len()];
 
         let mut output_line = output::Object::new();
-        if version_per_line {
+        if embed_envelope {
+            // Two bugs here we're not going to fix: We use the output format version number rather
+            // than Sonar's version number, and we don't emit a timestamp.
             output_line.push_s("v", VERSION.to_string());
         }
         for (i, name) in field_names.iter().enumerate() {
@@ -248,7 +247,9 @@ pub fn test_format_jobs() {
     local.tm_gmtoff = 3600;
     local.tm_isdst = 0;
     let jobs = parse_jobs(sacct_output, &field_names, &local, true);
-    print_jobs(&mut output, jobs, false);
+    for i in 0..jobs.len() {
+        output::write_csv(&mut output, jobs.at(i));
+    }
     if output != expected.as_bytes() {
         let xs = &output;
         let ys = expected.as_bytes();

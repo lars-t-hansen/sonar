@@ -53,7 +53,23 @@ pub fn get_memtotal_kib(fs: &dyn procfsapi::ProcfsAPI) -> Result<usize, String> 
 ///
 /// Fun fact: this file is very different on x86_64 and aarch64.
 
-pub fn get_cpu_info(fs: &dyn procfsapi::ProcfsAPI) -> Result<(String, i32, i32, i32), String> {
+pub struct CpuInfo {
+    pub sockets: i32,
+    pub cores_per_socket: i32,
+    pub threads_per_core: i32,
+    pub cores: Vec<CoreInfo>,
+}
+
+pub struct CoreInfo {
+    pub model_name: String,
+    pub logical_index: i32,
+    pub physical_index: i32,
+}
+
+// TODO: Instead of "not committing" to an architecture we should key off the build architecture
+// here, and have some expectations about what we're going to see.
+
+pub fn get_cpu_info(fs: &dyn procfsapi::ProcfsAPI) -> Result<CpuInfo, String> {
     let mut physids = HashMap::<i32, bool>::new();
     let mut processors = HashSet::<i32>::new();
     let mut cores_per_socket = 0i32;
@@ -98,14 +114,33 @@ pub fn get_cpu_info(fs: &dyn procfsapi::ProcfsAPI) -> Result<(String, i32, i32, 
             return Err("Incomplete information in /proc/cpuinfo".to_string());
         }
         let threads_per_core = siblings / cores_per_socket;
-        Ok((model_name, sockets, cores_per_socket, threads_per_core))
+        // FIXME: Indices we want from the OS, we don't want to do this guessing.
+        let mut cores = vec![];
+        for core in 0..sockets*cores_per_socket {
+            for thread in 0..threads_per_core {
+                cores.push(CoreInfo {
+                    logical_index: core*threads_per_core+thread,
+                    physical_index: core,
+                    model_name: model_name.clone(),
+                })
+            }
+        }
+        Ok(CpuInfo { sockets, cores_per_socket, threads_per_core, cores })
     } else if aarch64 {
-        Ok((
-            format!("ARMv{model_major}.{model_minor}"),
-            1,
-            processors.len() as i32,
-            1,
-        ))
+        let sockets = 1;
+        let cores_per_socket = processors.len() as i32;
+        let threads_per_core = 1;
+        let model_name = format!("ARMv{model_major}.{model_minor}");
+        // FIXME: Indices we want from the OS, we don't want to do this guessing.
+        let mut cores = vec![];
+        for core in 0..sockets*cores_per_socket {
+            cores.push(CoreInfo {
+                logical_index: core,
+                physical_index: core,
+                model_name: model_name.clone(),
+            })
+        }
+        Ok(CpuInfo { sockets, cores_per_socket, threads_per_core, cores })
     } else {
         Err("Unknown processor type in /proc/cpuinfo".to_string())
     }
@@ -682,10 +717,10 @@ pub fn procfs_cpuinfo_test() {
     let mut files = HashMap::new();
     files.insert("cpuinfo".to_string(), std::include_str!("testdata/cpuinfo.txt").to_string());
     let system = mocksystem::MockSystem::new().with_files(files).freeze();
-    let (model, sockets, cores, threads) =
+    let CpuInfo { sockets, cores_per_socket, threads_per_core, cores } =
         get_cpu_info(system.get_procfs()).expect("Test: Must have data");
-    assert!(model.find("E5-2637").is_some());
+    assert!(cores[0].model_name.find("E5-2637").is_some());
     assert!(sockets == 2);
-    assert!(cores == 4);
-    assert!(threads == 2);
+    assert!(cores_per_socket == 4);
+    assert!(threads_per_core == 2);
 }

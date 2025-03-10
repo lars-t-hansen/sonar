@@ -4,7 +4,6 @@ mod amd;
 mod amd_smi;
 mod command;
 mod gpuapi;
-mod gpuset;
 mod hostname;
 mod interrupt;
 mod jobsapi;
@@ -25,6 +24,8 @@ mod output;
 mod procfs;
 mod procfsapi;
 mod ps;
+mod ps_newfmt;
+mod ps_oldfmt;
 #[cfg(test)]
 mod ps_test;
 mod realgpu;
@@ -81,13 +82,22 @@ enum Commands {
         /// the per-cpu usage since boot.
         load: bool,
 
-        /// Output JSON, not CSV
+        /// Output new JSON, not CSV
         json: bool,
+
+        /// Cluster name
+        cluster: Option<String>,
     },
     /// Extract system information
     Sysinfo {
-        /// Output CSV, not JSON
+        /// Output CSV, not old JSON
         csv: bool,
+
+        /// Output new JSON, not old JSON
+        json: bool,
+
+        /// Cluster name
+        cluster: Option<String>,
     },
     /// Extract slurm job information
     Slurmjobs {
@@ -100,8 +110,11 @@ enum Commands {
         /// to is exclusive.  Precludes -window.
         span: Option<String>,
 
-        /// Output json, not CSV
+        /// Output new json, not CSV
         json: bool,
+
+        /// Cluster name
+        cluster: Option<String>,
     },
     Version {},
 }
@@ -125,6 +138,7 @@ fn main() {
             lockdir,
             load,
             json,
+            cluster,
         } => {
             let opts = ps::PsOptions {
                 rollup: *rollup,
@@ -135,17 +149,17 @@ fn main() {
                 exclude_system_jobs: *exclude_system_jobs,
                 load: *load,
                 exclude_users: if let Some(s) = exclude_users {
-                    s.split(',').collect::<Vec<&str>>()
+                    s.split(',').map(|x| x.to_string()).collect::<Vec<String>>()
                 } else {
                     vec![]
                 },
                 exclude_commands: if let Some(s) = exclude_commands {
-                    s.split(',').collect::<Vec<&str>>()
+                    s.split(',').map(|x| x.to_string()).collect::<Vec<String>>()
                 } else {
                     vec![]
                 },
                 lockdir: lockdir.clone(),
-                json: *json,
+                new_json: *json,
             };
 
             #[cfg(debug_assertions)]
@@ -155,12 +169,27 @@ fn main() {
             let force_slurm = false;
 
             let system = system.with_jobmanager(Box::new(jobsapi::AnyJobManager::new(force_slurm)));
+            let system = if cluster.is_some() {
+                system.with_cluster(cluster.as_ref().unwrap())
+            } else {
+                system
+            };
             ps::create_snapshot(writer, &system.freeze().expect("System initialization"), &opts);
         }
-        Commands::Sysinfo { csv } => {
-            sysinfo::show_system(writer, &system.freeze().expect("System initialization"), *csv);
+        Commands::Sysinfo { csv, json, cluster } => {
+            let system = if cluster.is_some() {
+                system.with_cluster(cluster.as_ref().unwrap())
+            } else {
+                system
+            };
+            sysinfo::show_system(writer, &system.freeze().expect("System initialization"), *csv, *json);
         }
-        Commands::Slurmjobs { window, span, json } => {
+        Commands::Slurmjobs { window, span, json, cluster } => {
+            let system = if cluster.is_some() {
+                system.with_cluster(cluster.as_ref().unwrap())
+            } else {
+                system
+            };
             slurmjobs::show_slurm_jobs(writer, window, span, &system.freeze().expect("System initialization"), *json);
         }
         Commands::Version {} => {
@@ -174,6 +203,9 @@ fn main() {
 //  - allow repeated options to overwrite earlier values
 //  - all error reporting is via a generic "usage" message, without specificity as to what was wrong
 //  - both --json and --csv are accepted to all commands
+//
+// Note that --json means "new json" everywhere, so --json for `sonar sysinfo` changes the output
+// format from the default old JSON encoding.
 
 fn command_line() -> Commands {
     let args = std::env::args().collect::<Vec<String>>();
@@ -194,6 +226,7 @@ fn command_line() -> Commands {
                 let mut load = false;
                 let mut json = false;
                 let mut csv = false;
+                let mut cluster = None;
                 while next < args.len() {
                     let arg = args[next].as_ref();
                     next += 1;
@@ -236,6 +269,10 @@ fn command_line() -> Commands {
                         numeric_arg::<usize>(arg, &args, next, "--min-cpu-time")
                     {
                         (next, min_cpu_time) = (new_next, Some(value));
+                    } else if let Some((new_next, value)) =
+                        string_arg(arg, &args, next, "--cluster")
+                    {
+                        (next, cluster) = (new_next, Some(value));
                     } else {
                         usage(true);
                     }
@@ -257,11 +294,13 @@ fn command_line() -> Commands {
                     lockdir,
                     load,
                     json,
+                    cluster,
                 }
             }
             "sysinfo" => {
                 let mut json = false;
                 let mut csv = false;
+                let mut cluster = None;
                 while next < args.len() {
                     let arg = args[next].as_ref();
                     next += 1;
@@ -269,6 +308,10 @@ fn command_line() -> Commands {
                         (next, json) = (new_next, true);
                     } else if let Some(new_next) = bool_arg(arg, &args, next, "--csv") {
                         (next, csv) = (new_next, true);
+                    } else if let Some((new_next, value)) =
+                        string_arg(arg, &args, next, "--cluster")
+                    {
+                        (next, cluster) = (new_next, Some(value));
                     } else {
                         usage(true);
                     }
@@ -277,13 +320,14 @@ fn command_line() -> Commands {
                     eprintln!("--csv and --json are incompatible");
                     std::process::exit(USAGE_ERROR);
                 }
-                Commands::Sysinfo { csv }
+                Commands::Sysinfo { csv, json, cluster }
             }
             "slurm" => {
                 let mut window = None;
                 let mut span = None;
                 let mut json = false;
                 let mut csv = false;
+                let mut cluster = None;
                 while next < args.len() {
                     let arg = args[next].as_ref();
                     next += 1;
@@ -297,6 +341,10 @@ fn command_line() -> Commands {
                         (next, json) = (new_next, true);
                     } else if let Some(new_next) = bool_arg(arg, &args, next, "--csv") {
                         (next, csv) = (new_next, true);
+                    } else if let Some((new_next, value)) =
+                        string_arg(arg, &args, next, "--cluster")
+                    {
+                        (next, cluster) = (new_next, Some(value));
                     } else {
                         usage(true);
                     }
@@ -308,7 +356,7 @@ fn command_line() -> Commands {
                     eprintln!("--csv and --json are incompatible");
                     std::process::exit(USAGE_ERROR);
                 }
-                Commands::Slurmjobs { window, span, json }
+                Commands::Slurmjobs { window, span, json, cluster }
             }
             "version" => Commands::Version {},
             "help" => {
@@ -410,7 +458,17 @@ Options for `ps`:
   --load
       Print per-cpu and per-gpu load data
   --json
-      Format output as JSON, not CSV
+      Format output as new JSON, not CSV
+  --cluster name
+      Optional cluster name with which to tag output
+
+Options for `sysinfo`:
+  --csv
+      Format output as CSV, not JSON
+  --json
+      Format output as new JSON, not the old JSON
+  --cluster name
+      Optional cluster name with which to tag output
 
 Options for `slurm`:
   --window minutes
@@ -420,7 +478,9 @@ Options for `slurm`:
       Both `start` and `end` are on the form yyyy-mm-dd.  Mostly useful for seeding a
       database with older data.  Precludes --window
   --json
-      Format output as JSON, not CSV
+      Format output as new JSON, not CSV
+  --cluster name
+      Optional cluster name with which to tag output
 ",
     );
     let _ = out.flush();

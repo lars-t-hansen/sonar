@@ -16,8 +16,9 @@ pub struct Process {
     pub pgrp: usize,
     pub uid: usize,
     pub user: String, // _noinfo_<uid> if name unobtainable
-    pub cpu_pct: f64,
+    pub cpu_pct: f64, // Cumulative, not very useful but sonalyze uses it
     pub mem_pct: f64,
+    pub cpu_util: f64, // Sample (over a short time period), slurm-monitor uses it
     pub cputime_sec: usize,
     pub mem_size_kib: usize,
     pub rssanon_kib: usize,
@@ -541,6 +542,7 @@ pub fn get_process_information(
                 user: user_table.lookup(system, uid),
                 cpu_pct: pcpu_formatted,
                 mem_pct: pmem,
+                cpu_util: 0.0,    // FIXME
                 cputime_sec,
                 mem_size_kib: size_kib,
                 rssanon_kib,

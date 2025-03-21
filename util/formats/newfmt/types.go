@@ -24,6 +24,8 @@ type MetadataObject struct {
 type ErrorObject struct {
 	Time   string `json:"time"`
 	Detail string `json:"detail"`
+	Cluster string `json:"cluster"`
+	Node string `json:"node"`
 }
 
 type KVPair struct {

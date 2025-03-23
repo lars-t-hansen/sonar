@@ -22,10 +22,10 @@ type MetadataObject struct {
 }
 
 type ErrorObject struct {
-	Time   string `json:"time"`
-	Detail string `json:"detail"`
+	Time    string `json:"time"`
+	Detail  string `json:"detail"`
 	Cluster string `json:"cluster"`
-	Node string `json:"node"`
+	Node    string `json:"node"`
 }
 
 type KVPair struct {
@@ -47,19 +47,19 @@ type SysinfoData struct {
 }
 
 type SysinfoAttributes struct {
-	Time        string                   `json:"time"`
-	Cluster     string                   `json:"cluster"`
-	Node        string                   `json:"node"`
-	OsName      string                   `json:"os_name"`
-	OsRelease   string                   `json:"os_release"`
-	Sockets     uint64                   `json:"sockets"`
-	CoresPerSocket uint64                `json:"cores_per_socket"`
-	ThreadsPerCore uint64                `json:"threads_per_core"`
-	CpuModel    string                   `json:"cpu_model"`
-	Memory      uint64                   `json:"memory"`
-	TopoSVG     string                   `json:"topo_svg"` // Base64-encoded SVG
-	Cards       []SysinfoGpuCard         `json:"cards"`
-	Software    []SysinfoSoftwareVersion `json:"software"`
+	Time           string                   `json:"time"`
+	Cluster        string                   `json:"cluster"`
+	Node           string                   `json:"node"`
+	OsName         string                   `json:"os_name"`
+	OsRelease      string                   `json:"os_release"`
+	Sockets        uint64                   `json:"sockets"`
+	CoresPerSocket uint64                   `json:"cores_per_socket"`
+	ThreadsPerCore uint64                   `json:"threads_per_core"`
+	CpuModel       string                   `json:"cpu_model"`
+	Memory         uint64                   `json:"memory"`
+	TopoSVG        string                   `json:"topo_svg"` // Base64-encoded SVG
+	Cards          []SysinfoGpuCard         `json:"cards"`
+	Software       []SysinfoSoftwareVersion `json:"software"`
 }
 
 type SysinfoGpuCard struct {

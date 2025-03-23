@@ -7,6 +7,9 @@ import (
 	"github.com/NordicHPC/sonar/util/formats/oldfmt"
 )
 
+// The use case for this is transitional - when we receive new sysinfo but want to store it in old
+// data files.
+
 func NewSysinfoToOld(d *SysinfoEnvelope) (o oldfmt.SysinfoEnvelope) {
 	o.Version = d.Meta.Version
 	if d.Errors != nil {
@@ -68,7 +71,7 @@ func NewSysinfoToOld(d *SysinfoEnvelope) (o oldfmt.SysinfoEnvelope) {
 			}
 			gpuDesc += fmt.Sprintf(", %dx %s @ %dGiB", i-first, cards[first].Model, memsize)
 		}
-		o.Description = fmt.Sprintf("%dx%d%s %s, %s GiB%s",
+		o.Description = fmt.Sprintf("%dx%d%s %s, %d GiB%s",
 			a.Sockets, a.CoresPerSocket, ht, a.CpuModel, o.MemGB, gpuDesc)
 	}
 	return

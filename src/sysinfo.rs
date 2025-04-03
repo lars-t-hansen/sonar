@@ -2,6 +2,7 @@ use crate::gpuapi;
 use crate::output;
 use crate::procfs;
 use crate::systemapi;
+use crate::json_tags::*;
 
 use std::io;
 
@@ -33,33 +34,33 @@ pub fn show_system(writer: &mut dyn io::Write, system: &dyn systemapi::SystemAPI
 
 fn layout_sysinfo_newfmt(system: &dyn systemapi::SystemAPI, node_info: NodeInfo) -> output::Object {
     let mut envelope = output::newfmt_envelope(system, &vec![]);
-    let (mut data, mut attrs) = output::newfmt_data(system, "sysinfo");
-    attrs.push_s("node", node_info.node.clone());
-    attrs.push_s("os_name", system.get_os_name());
-    attrs.push_s("os_release", system.get_os_release());
-    attrs.push_u("sockets", node_info.sockets);
-    attrs.push_u("cores_per_socket", node_info.cores_per_socket);
-    attrs.push_u("threads_per_core", node_info.threads_per_core);
-    attrs.push_s("cpu_model", node_info.cores[0].model_name.clone());
-    attrs.push_s("architecture", system.get_architecture());
-    attrs.push_u("memory", node_info.mem_kb);
-    // attrs.push_s("topo_svg") // FIXME
+    let (mut data, mut attrs) = output::newfmt_data(system, "sysinfo"); // FIXME: Here's a good reason this should be defined
+    attrs.push_s(SYSINFO_ATTRIBUTES_NODE, node_info.node.clone());
+    attrs.push_s(SYSINFO_ATTRIBUTES_OS_NAME, system.get_os_name());
+    attrs.push_s(SYSINFO_ATTRIBUTES_OS_RELEASE, system.get_os_release());
+    attrs.push_u(SYSINFO_ATTRIBUTES_SOCKETS, node_info.sockets);
+    attrs.push_u(SYSINFO_ATTRIBUTES_CORES_PER_SOCKET, node_info.cores_per_socket);
+    attrs.push_u(SYSINFO_ATTRIBUTES_THREADS_PER_CORE, node_info.threads_per_core);
+    attrs.push_s(SYSINFO_ATTRIBUTES_CPU_MODEL, node_info.cores[0].model_name.clone());
+    attrs.push_s(SYSINFO_ATTRIBUTES_ARCHITECTURE, system.get_architecture());
+    attrs.push_u(SYSINFO_ATTRIBUTES_MEMORY, node_info.mem_kb);
+    // attrs.push_s(SYSINFO_ATTRIBUTES_TOPO_SVG) // FIXME
     let gpu_info = layout_card_info(&node_info, true);
     if gpu_info.len() > 0 {
-        attrs.push_a("cards", gpu_info);
+        attrs.push_a(SYSINFO_ATTRIBUTES_CARDS, gpu_info);
     }
-    // software.push_s("key")  // FIXME
-    // software.push_s("name") // FIXME
-    // software.push_s("version") // FIXME
-    // attrs.push_a("software") // FIXME
-    data.push_o("attributes", attrs);
-    envelope.push_o("data", data);
+    // software.push_s(SYSINFO_SOFTWARE_VERSION_KEY)  // FIXME
+    // software.push_s(SYSINFO_SOFTWARE_VERSION_NAME) // FIXME
+    // software.push_s(SYSINFO_SOFTWARE_VERSION_VERSION) // FIXME
+    // attrs.push_a(SYSINFO_ATTRIBUTES_SOFTWARE) // FIXME
+    data.push_o(SYSINFO_DATA_ATTRIBUTES, attrs);
+    envelope.push_o(SYSINFO_ENVELOPE_DATA, data);
     envelope
 }
 
 fn layout_error_newfmt(system: &dyn systemapi::SystemAPI, error: String) -> output::Object {
     let mut envelope = output::newfmt_envelope(system, &vec![]);
-    envelope.push_a("errors", output::newfmt_one_error(system, error));
+    envelope.push_a(SYSINFO_ENVELOPE_ERRORS, output::newfmt_one_error(system, error));
     envelope
 }
 
@@ -122,27 +123,27 @@ fn layout_card_info(node_info: &NodeInfo, new_json: bool) -> output::Array {
             max_mem_clock_mhz,
         } = c;
         let mut gpu = output::Object::new();
-        gpu.push_s(if new_json { "address" } else { "bus_addr" },
+        gpu.push_s(if new_json { SYSINFO_GPU_CARD_ADDRESS } else { "bus_addr" },
                    bus_addr.to_string());
-        gpu.push_i("index", device.index as i64);
-        gpu.push_s("uuid", device.uuid.to_string());
-        gpu.push_s("manufacturer", node_info.card_manufacturer.clone());
-        gpu.push_s("model", model.to_string());
-        gpu.push_s(if new_json { "architecture" } else { "arch" },
+        gpu.push_i(SYSINFO_GPU_CARD_INDEX, device.index as i64);
+        gpu.push_s(SYSINFO_GPU_CARD_UUID, device.uuid.to_string());
+        gpu.push_s(SYSINFO_GPU_CARD_MANUFACTURER, node_info.card_manufacturer.clone());
+        gpu.push_s(SYSINFO_GPU_CARD_MODEL, model.to_string());
+        gpu.push_s(if new_json { SYSINFO_GPU_CARD_ARCHITECTURE } else { "arch" },
                    arch.to_string());
-        gpu.push_s("driver", driver.to_string());
-        gpu.push_s("firmware", firmware.to_string());
-        gpu.push_i(if new_json { "memory" } else { "mem_size_kib" },
+        gpu.push_s(SYSINFO_GPU_CARD_DRIVER, driver.to_string());
+        gpu.push_s(SYSINFO_GPU_CARD_FIRMWARE, firmware.to_string());
+        gpu.push_i(if new_json { SYSINFO_GPU_CARD_MEMORY } else { "mem_size_kib" },
                    *mem_size_kib);
-        gpu.push_i(if new_json { "power_limit" } else { "power_limit_watt" },
+        gpu.push_i(if new_json { SYSINFO_GPU_CARD_POWER_LIMIT } else { "power_limit_watt" },
                    *power_limit_watt as i64);
-        gpu.push_i(if new_json { "max_power_limit" } else { "max_power_limit_watt" },
+        gpu.push_i(if new_json { SYSINFO_GPU_CARD_MAX_POWER_LIMIT } else { "max_power_limit_watt" },
                    *max_power_limit_watt as i64);
-        gpu.push_i(if new_json { "min_power_limit" } else { "min_power_limit_watt" },
+        gpu.push_i(if new_json { SYSINFO_GPU_CARD_MIN_POWER_LIMIT } else { "min_power_limit_watt" },
                    *min_power_limit_watt as i64);
-        gpu.push_i(if new_json { "max_ce_clock" } else { "max_ce_clock_mhz" },
+        gpu.push_i(if new_json { SYSINFO_GPU_CARD_MAX_CECLOCK } else { "max_ce_clock_mhz" },
                    *max_ce_clock_mhz as i64);
-        gpu.push_i(if new_json { "max_memory_clock" } else { "max_mem_clock_mhz" },
+        gpu.push_i(if new_json { SYSINFO_GPU_CARD_MAX_MEMORY_CLOCK } else { "max_mem_clock_mhz" },
                    *max_mem_clock_mhz as i64);
         gpu_info.push_o(gpu);
     }

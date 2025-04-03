@@ -8,6 +8,7 @@ mod gpuapi;
 mod hostname;
 mod interrupt;
 mod jobsapi;
+mod json_tags;
 mod log;
 #[cfg(test)]
 mod mockfs;

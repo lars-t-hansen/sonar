@@ -42,11 +42,10 @@ func main() {
 	}
 	switch {
 	case *makeDoc:
-		fmt.Println("# Sonar JSON format output specification\n")
+		fmt.Print("# Sonar JSON format output specification\n\n")
 	case *makeRust:
-		fmt.Println("// AUTOMATICALLY GENERATED.  DO NOT EDIT.")
-		fmt.Println("#![allow(dead_code)]") // Should remove this eventually, OK for testing
-		fmt.Println()
+		fmt.Print("// AUTOMATICALLY GENERATED.  DO NOT EDIT.\n")
+		fmt.Print("#![allow(dead_code)]\n\n") // Should remove this eventually, OK for testing
 	}
 	lines := make(chan any)
 	go producer(lines)
@@ -129,17 +128,10 @@ LineConsumer:
 	}
 }
 
-const (
-	sectionIndent = "##"
-	typeIndent  = "###"
-	fieldIndent = "####"
-)
-
 func maybePreamble(l int, havePreamble bool, doc []string) (bool, []string) {
 	if len(doc) > 1 && !*makeRust {
 		if strings.HasPrefix(doc[0], "+preamble") {
 			warnIf(havePreamble, l, "Redundant preamble")
-			fmt.Printf("%s Introduction\n\n", sectionIndent)
 			for _, d := range doc[1:] {
 				fmt.Println(d)
 			}
@@ -160,7 +152,7 @@ var printedTypeHeading bool
 
 func maybeTypeHeading() {
 	if !printedTypeHeading {
-		fmt.Printf("%s Types\n\n", sectionIndent)
+		fmt.Print("## Data types\n\n")
 		printedTypeHeading = true
 	}
 }
@@ -168,7 +160,7 @@ func maybeTypeHeading() {
 func emitType(l TypeLine, doc []string) {
 	if *makeDoc {
 		maybeTypeHeading()
-		fmt.Printf("%s Type: `%s`\n\n", typeIndent, l.Name)
+		fmt.Printf("### Type: `%s`\n\n", l.Name)
 		for _, d := range doc {
 			fmt.Println(d)
 		}
@@ -179,7 +171,7 @@ func emitType(l TypeLine, doc []string) {
 func emitField(l FieldLine, currType string, doc []string) {
 	switch {
 	case *makeDoc:
-		fmt.Printf("%s **`%s`** %s\n\n", fieldIndent, l.Json, l.Type)
+		fmt.Printf("#### **`%s`** %s\n\n", l.Json, l.Type)
 		for _, d := range doc {
 			fmt.Println(d)
 		}

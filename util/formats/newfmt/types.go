@@ -5,6 +5,73 @@
 
 ///+preamble
 ///
+/// ## Introduction
+///
+/// Five types of data are collected:
+///
+/// * job and process sample data
+/// * node sample data
+/// * job data
+/// * node configuration data
+/// * cluster data
+///
+/// The job and process sample data are collected frequently on every node and comprise information
+/// about each running job and the resource use of the processes in the job, for all pertinent
+/// resources (cpu, ram, gpu, gpu ram, power consumption, i/o).
+///
+/// The node sample data are also collected on every node, normally at the same time as the job and
+/// process sample data, and comprise information about the overall use of resources on the node
+/// independently of jobs and processes, to the extent these can't be derived from the job and
+/// process sample data.
+///
+/// The job data are collected on a master node and comprise information about the job that are not
+/// directly related to moment-to-moment resource usage: start and end times, time in the queue,
+/// allocation requests, completion status, billable resource use and so on.  (Only applies to
+/// systems with a job manager / job queue.)
+///
+/// The node configuration data are collected occasionally on every node and comprise information
+/// about the current configuration of the node.
+///
+/// The cluster data are collected occasionally on a master node and comprise information about the
+/// cluster that are related to how nodes are grouped into partitions and short-term node status; it
+/// complements node configuration data.
+///
+/// NOTE: Nodes may be added to clusters simply by submitting data for them.
+///
+/// NOTE: We do not yet collect some interesting cluster configuration data – how nodes, racks,
+/// islands are connected and by what type of interconnect; the type of attached I/O.  Clusters are
+/// added to the database through other APIs.
+///
+/// ## Data format overall notes
+///
+/// The output is a tree structure that is constrained enough to be serialized as
+/// [JSON](https://www.rfc-editor.org/rfc/rfc8259) and other likely serialization formats (protobuf,
+/// bson, cbor, a custom format, whatever).  It shall follow the [json:api
+/// specification](https://jsonapi.org/format/#document-structure).  It generally does not
+/// incorporate many size optimizations.
+///
+/// It's not a goal to have completely normalized data; redundancies are desirable in some cases to
+/// make data self-describing.
+///
+/// In a serialization format that allows fields to be omitted, all fields except union fields will
+/// have default values, which are zero, empty string, false, the empty object, or the empty array.
+/// A union field must have exactly one member present.
+///
+/// Field values are constrained by data types described below, and sometimes by additional
+/// constraints described in prose.  Primitive types are as they are in Go: 64-bit integers and
+/// floating point, and Unicode strings.  Numeric values outside the given ranges, non-Unicode
+/// string encodings, malformed timestamps, malformed node-ranges or type-incorrect data in any
+/// field can cause the entire top-level object containing them to be rejected by the back-end.
+///
+/// The word "current" in the semantics of a field denotes an instantaneous reading or a
+/// short-interval statistical measure; contrast "cumulative", which is since start of process/job
+/// or since system boot or some other fixed time.
+///
+/// Field names generally do not carry unit information.  The units are included in the field
+/// descriptions, but if they are not then they should be kilobytes for memory, megahertz for
+/// clocks, watts for power, and percentage points for relative utilization measures.  (Here,
+/// Kilobyte (KB) = 2^10, Megabyte (MB) = 2^20, Gigabyte (GB) = 2^30 bytes, SI notwithstanding.)
+///
 /// The top-level object for each output data type is the "...Envelope" object.
 ///
 /// Within each envelope, `Data` and `Errors` are exclusive of each other.
@@ -25,6 +92,13 @@
 /// If a device does not expose a UUID, one will be constructed for it by the monitoring component.
 /// This UUID will never be confusable with another device but it may change, eg at reboot, creating
 /// a larger population of devices than there is in actuality.
+///
+/// ## Data format versions
+///
+/// This document describes data format version "0".  Adding fields or removing fields where default
+/// values indicate missing values in the data format do not change the version number: the version
+/// number only needs change if semantics of existing fields change in some incompatible way.  We
+/// intend that the version will "never" change.
 
 package newfmt
 
@@ -41,6 +115,9 @@ type NonzeroUint uint64
 /// RFC3999 localtime+TZO with no sub-second precision: yyyy-mm-ddThh:mm:ss+hh:mm, "Z" for +00:00.
 type Timestamp NonemptyString
 
+/// Timestamp, or empty string for missing data
+type OptionalTimestamp string
+
 /// Dotted host name or prefix of same, with standard restrictions on character set.
 type Hostname NonemptyString
 
@@ -48,6 +125,7 @@ type Hostname NonemptyString
 /// value range than regular unsigned.
 type ExtendedUint int64
 
+// TODO: We want to expose these in the rendered spec, or include the information in the comment above.
 const (
 	ExtendedUintUnset    int64 = 0
 	ExtendedUintInfinite int64 = -1
@@ -63,6 +141,7 @@ func (e ExtendedUint) ToUint() (uint64, error) {
 /// String-valued enum tag for the record type
 type DataType NonemptyString
 
+// TODO: Use these or get rid of them?
 const (
 	DTSample  DataType = "sample"
 	DTSysinfo DataType = "sysinfo"
@@ -674,6 +753,12 @@ type ClusterNodes struct {
 	States []string    `json:"states"`
 }
 
-// Bracket-compressed node list element.
+/// A nonempty-string representing a list of hostnames compactly using a simple syntax: brackets
+/// introduce a list of individual numbered nodes and ranges, these are expanded to yield a list of
+/// node names.  For example, `c[1-3,5]-[2-4].fox` yields `c1-2.fox`, `c1-3.fox`, `c1-4.fox`,
+/// `c2-2.fox`, `c2-3.fox`, `c2-4.fox`, `c3-2.fox`, `c3-3.fox`, `c3-4.fox`, `c5-2.fox`, `c5-3.fox`,
+/// `c5-4.fox`.  In a valid range, the first number is no greater than the second number, and
+/// numbers are not repeated.  (The motivation for this feature is that some clusters have very many
+/// nodes and that they group well this way.)
 
-type NodeRange string
+type NodeRange NonemptyString

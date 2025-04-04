@@ -265,6 +265,7 @@ func TestDecodeSlurmTRES(t *testing.T) {
 //
 // All strings on each line found between //+implicit-use and //-implicit-use are marked as used.
 
+/*
 func TestFieldNames(t *testing.T) {
 	push_re := regexp.MustCompile(`push_(?:string|uint_full|uint|duration|date|volume|s|i|u|f|o|a|b)\([^"]*"([a-zA-Z0-9_-]*)`)
 	implicit_re := regexp.MustCompile(`"([a-zA-Z0-9_-]*)"`)
@@ -364,6 +365,7 @@ func TestFieldNames(t *testing.T) {
 		t.Fatal("failed")
 	}
 }
+*/
 
 var built bool
 
@@ -382,4 +384,59 @@ func runSonar(t *testing.T, args ...string) string {
 		t.Fatal(err)
 	}
 	return string(stdout)
+}
+
+var (
+	defRe = regexp.MustCompile(`pub\s+const\s+([^\s]+)\s*:`)
+	idRe = regexp.MustCompile(`[A-Z][A-Z0-9_]*`)
+)
+
+func TestFieldNames2(t *testing.T) {
+	f, err := os.Open("../../src/json_tags.rs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	b := bufio.NewScanner(f)
+	var ln int
+	defined := make(map[string]int)
+	for b.Scan() {
+		ln++
+		l := b.Text()
+		if m := defRe.FindStringSubmatch(l); m != nil {
+			if defined[m[1]] > 0 {
+				panic("Multiple defs " + m[1])
+			}
+			defined[m[1]] = ln
+		}
+	}
+	for _, fn := range []string{
+		"../../src/cluster.rs",
+		"../../src/sysinfo.rs",
+		"../../src/output.rs",
+		"../../src/ps.rs",
+		"../../src/ps_newfmt.rs",
+		"../../src/slurmjobs.rs",
+	} {
+		f, err := os.Open(fn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		b := bufio.NewScanner(f)
+		var ln int
+		for b.Scan() {
+			ln++
+			l := b.Text()
+			for _, id := range idRe.FindAllString(l, -1) {
+				delete(defined, id)
+			}
+		}
+	}
+	for k, v := range defined {
+		fmt.Println(k,  " ", v)
+	}
+	if len(defined) > 0 {
+		t.Fatal("oops")
+	}
 }

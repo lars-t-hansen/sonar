@@ -6,6 +6,7 @@
 
 use crate::systemapi;
 use crate::util;
+use crate::json_tags::*;
 
 use std::io;
 
@@ -408,40 +409,52 @@ pub fn newfmt_envelope(
 ) -> Object {
     let mut envelope = Object::new();
     let mut meta = Object::new();
-    meta.push_s("producer","sonar".to_string());
-    meta.push_s("version", system.get_version());
-    // meta.push_u("format", 1) // 1 is the default
-    // meta.push_s("token") // FIXME
+    meta.push_s(METADATA_OBJECT_PRODUCER, "sonar".to_string());
+    meta.push_s(METADATA_OBJECT_VERSION, system.get_version());
+    // meta.push_u(METADATA_OBJECT_FORMAT, 0)
+    // meta.push_s(METADATA_OBJECT_TOKEN) // FIXME
     if attrs.len() > 0 {
         let mut attrvals = Array::new();
         for AttrVal { key, value } in attrs {
             let mut pair = Object::new();
-            pair.push_s("key", key.clone());
-            pair.push_s("value", value.clone());
+            pair.push_s(KVPAIR_KEY, key.clone());
+            pair.push_s(KVPAIR_VALUE, value.clone());
             attrvals.push_o(pair);
         }
-        meta.push_a("attrs", attrvals);
+        meta.push_a(METADATA_OBJECT_ATTRS, attrvals);
     }
-    envelope.push_o("meta", meta);
+    envelope.push_o(SYSINFO_ENVELOPE_META, meta); // FIXME - not specific to sysinfo
+    // CLUSTER_ENVELOPE_META
+    // SAMPLE_ENVELOPE_META
+    // JOBS_ENVELOPE_META
     envelope
 }
 
 pub fn newfmt_data(system: &dyn systemapi::SystemAPI, ty: &str) -> (Object, Object) {
     let mut data = Object::new();
-    data.push_s("type",ty.to_string());
+    data.push_s(SYSINFO_DATA_TYPE,ty.to_string()); // FIXME - not specific to sysinfo
+    // CLUSTER_DATA_TYPE
+    // SAMPLE_DATA_TYPE
+    // JOBS_DATA_TYPE
     let mut attrs = Object::new();
-    attrs.push_s("time", system.get_timestamp());
+    attrs.push_s(SYSINFO_ATTRIBUTES_TIME, system.get_timestamp()); // FIXME - not specific to sysinfo
+    // CLUSTER_ATTRIBUTES_TIME
+    // SAMPLE_ATTRIBUTES_TIME
+    // JOBS_ATTRIBUTES_TIME
     let c = system.get_cluster();
     if c != "" {
-        attrs.push_s("cluster", c);
+        attrs.push_s(SYSINFO_ATTRIBUTES_CLUSTER, c); // FIXME - not specific to sysinfo
+        // CLUSTER_ATTRIBUTES_CLUSTER
+        // SAMPLE_ATTRIBUTES_CLUSTER
+        // JOBS_ATTRIBUTES_CLUSTER
     }
     (data, attrs)
 }
 
 pub fn newfmt_one_error(system: &dyn systemapi::SystemAPI, error: String) -> Array {
     let mut err0 = Object::new();
-    err0.push_s("detail", error);
-    err0.push_s("time", system.get_timestamp());
+    err0.push_s(ERROR_OBJECT_DETAIL, error);
+    err0.push_s(ERROR_OBJECT_TIME, system.get_timestamp());
     let mut errors = Array::new();
     errors.push_o(err0);
     errors

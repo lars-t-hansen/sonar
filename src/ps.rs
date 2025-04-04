@@ -5,6 +5,7 @@ use crate::procfs;
 use crate::ps_newfmt::format_newfmt;
 use crate::ps_oldfmt::{format_oldfmt, make_oldfmt_heartbeat};
 use crate::systemapi;
+use crate::json_tags::*;
 
 use std::collections::HashMap;
 use std::io::{self, Write};
@@ -152,7 +153,7 @@ fn do_create_snapshot(
         Err(error) => {
             if opts.new_json {
                 let mut envelope = output::newfmt_envelope(system, &vec![]);
-                envelope.push_a("errors", output::newfmt_one_error(system, error));
+                envelope.push_a(SAMPLE_ENVELOPE_ERRORS, output::newfmt_one_error(system, error));
                 output::write_json(writer, &output::Value::O(envelope));
             } else {
                 let mut hb = make_oldfmt_heartbeat(system);

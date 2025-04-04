@@ -15,6 +15,7 @@
 use crate::output;
 use crate::systemapi;
 use crate::nodelist;
+use crate::json_tags::*;
 
 use std::io;
 
@@ -26,7 +27,7 @@ pub fn show_cluster(writer: &mut dyn io::Write, system: &dyn systemapi::SystemAP
                 Ok(envelope) => envelope,
                 Err(error) => {
                     let mut envelope = output::newfmt_envelope(system, &vec![]);
-                    envelope.push_a("errors", output::newfmt_one_error(system, error));
+                    envelope.push_a(CLUSTER_ENVELOPE_ERRORS, output::newfmt_one_error(system, error));
                     envelope
                 }
             }
@@ -44,29 +45,29 @@ fn do_show_cluster(system: &dyn systemapi::SystemAPI) -> Result<output::Object, 
 	} else {
             name.to_string()
 	};
-        p.push_s("name", name);
-        p.push_a("nodes", nodelist::parse_and_render(&nodelist)?);
+        p.push_s(CLUSTER_PARTITION_NAME, name);
+        p.push_a(CLUSTER_PARTITION_NODES, nodelist::parse_and_render(&nodelist)?);
         partitions.push_o(p);
     }
 
     let mut nodes = output::Array::new();
     for (nodelist, statelist) in system.run_sinfo_nodes()? {
         let mut p = output::Object::new();
-        p.push_a("names", nodelist::parse_and_render(&nodelist)?);
+        p.push_a(CLUSTER_NODES_NAMES, nodelist::parse_and_render(&nodelist)?);
         let mut states = output::Array::new();
         for s in statelist.split('+') {
             states.push_s(s.to_ascii_uppercase());
         }
-        p.push_a("states", states);
+        p.push_a(CLUSTER_NODES_STATES, states);
         nodes.push_o(p);
     }
 
     let mut envelope = output::newfmt_envelope(system, &vec![]);
-    let (mut data, mut attrs) = output::newfmt_data(system, "cluster");
-    attrs.push_b("slurm", true);
-    attrs.push_a("partitions", partitions);
-    attrs.push_a("nodes", nodes);
-    data.push_o("attributes", attrs);
-    envelope.push_o("data", data);
+    let (mut data, mut attrs) = output::newfmt_data(system, "cluster"); // FIXME
+    attrs.push_b(CLUSTER_ATTRIBUTES_SLURM, true);
+    attrs.push_a(CLUSTER_ATTRIBUTES_PARTITIONS, partitions);
+    attrs.push_a(CLUSTER_ATTRIBUTES_NODES, nodes);
+    data.push_o(CLUSTER_DATA_ATTRIBUTES, attrs);
+    envelope.push_o(CLUSTER_ENVELOPE_DATA, data);
     Ok(envelope)
 }

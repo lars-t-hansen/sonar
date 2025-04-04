@@ -676,12 +676,18 @@ type SampleProcessGpu struct {
 	UUID NonemptyString `json:"uuid"`
 
 	/// The current GPU percentage utilization for the process on the card.
+	///
+	/// TODO: The "gpu_" prefix is redundant
 	GpuUtil float64 `json:"gpu_util"`
 
 	/// The current GPU memory used in kilobytes for the process on the card. See notes.
+	///
+	/// TODO: The "gpu_" prefix is redundant
 	GpuMemory uint64 `json:"gpu_memory"`
 
 	/// The current GPU memory usage percentage for the process on the card. See notes.
+	///
+	/// TODO: The "gpu_" prefix is redundant
 	GpuMemoryUtil float64 `json:"gpu_memory_util"`
 }
 

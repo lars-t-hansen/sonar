@@ -5,10 +5,10 @@ INPUT=../formats/newfmt/types.go
 all: NEW-FORMAT.md json_tags.rs
 
 NEW-FORMAT.md: $(INPUT) process-doc
-	./process-doc -doc < $(INPUT) > NEW-FORMAT.md
+	./process-doc -w -doc < $(INPUT) > NEW-FORMAT.md
 
 json_tags.rs: $(INPUT) process-doc
-	./process-doc -tag < $(INPUT) > json_tags.rs
+	./process-doc -w -tag < $(INPUT) > json_tags.rs
 
 process-doc: process-doc.go go.mod
 	go build

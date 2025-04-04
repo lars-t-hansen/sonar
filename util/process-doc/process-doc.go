@@ -4,9 +4,11 @@
 //
 // The format is this:
 //
-// Input     ::= Preamble? (TypeDefn | Junk)*
+// Input     ::= Preamble? (TypeDefn | Junk)* Postamble?
 // Preamble  ::= PreFlag Doc*
 // PreFlag   ::= <line starting with "///+preamble" after blank stripping
+// Postamble ::= PostFlag Doc*
+// PostFlag  ::= <line starting with "///+postamble" after blank stripping
 // TypeDefn  ::= Doc+ Blank* Type FieldDefn*
 // Doc       ::= <line starting with "///" after blank stripping>
 // Blank     ::= <line that's empty after blank stripping>
@@ -77,6 +79,7 @@ func process(lines <-chan any) {
 	doc := make([]string, 0)
 	var havePreamble bool
 	var currLine any
+	var todos int
 LineConsumer:
 	for {
 		currLine = <-lines
@@ -85,11 +88,18 @@ LineConsumer:
 		case nil:
 			break LineConsumer
 		case JunkLine:
+			isPreamble := false
+			if len(doc) > 0 && strings.HasPrefix(doc[0], "+preamble") {
+				isPreamble = true
+			}
 			havePreamble, doc = maybePreamble(l.Lineno, havePreamble, doc)
-			warnIf(len(doc) > 0, l.Lineno, "Junk following doc")
+			warnIf(len(doc) > 0 && !isPreamble, l.Lineno, "Junk following doc")
 			doc = doc[0:0]
 		case DocLine:
 			doc = append(doc, l.Text)
+			if strings.Index(l.Text, "TODO") >= 0 {
+				todos++
+			}
 		case TypeLine:
 			havePreamble, doc = maybePreamble(l.Lineno, havePreamble, doc)
 			warnIf(len(doc) == 0, l.Lineno, "Type without doc")
@@ -108,6 +118,9 @@ LineConsumer:
 					doc = doc[0:0]
 					break FieldConsumer
 				case DocLine:
+					if strings.Index(l.Text, "TODO") >= 0 {
+						todos++
+					}
 					doc = append(doc, l.Text)
 				case TypeLine:
 					goto OuterSwitch
@@ -124,6 +137,17 @@ LineConsumer:
 			warnIf(true, l.Lineno, "Field outside of typedecl context")
 		default:
 			panic("Should not happen")
+		}
+	}
+	if *makeDoc {
+		if len(doc) > 0 && strings.HasPrefix(doc[0], "+postamble") {
+			for _, d := range doc[1:] {
+				fmt.Println(d)
+			}
+			fmt.Println()
+		}
+		if todos > 0 && *warnings {
+			fmt.Fprintf(os.Stderr, "WARNING: %d TODOs\n", todos)
 		}
 	}
 }

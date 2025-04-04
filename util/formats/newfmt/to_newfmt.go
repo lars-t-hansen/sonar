@@ -20,9 +20,9 @@ import (
 // those from the Description, which has been the same since time immemorial.
 
 type OldSysinfoAdapter struct {
-	OsName string
+	OsName    string
 	OsRelease string
-	Cluster string
+	Cluster   string
 }
 
 var descMatcher = regexp.MustCompile(`^(\d+)x(\d+)( \(hyperthreaded\))?(.*?), \d+ GiB`)
@@ -57,10 +57,10 @@ func OldSysinfoToNew(d *oldfmt.SysinfoEnvelope, adapter OldSysinfoAdapter) (n Sy
 	if d.CpuCores == 0 && d.MemGB == 0 {
 		n.Errors = []ErrorObject{
 			ErrorObject{
-				Time: toTimestamp(d.Timestamp),
-				Detail: toNonemptyString(d.Description),
+				Time:    toTimestamp(d.Timestamp),
+				Detail:  toNonemptyString(d.Description),
 				Cluster: toHostname(adapter.Cluster),
-				Node: toHostname(d.Hostname),
+				Node:    toHostname(d.Hostname),
 			},
 		}
 	} else {

@@ -1,4 +1,5 @@
-// This is a machine-processable executable specification for the new JSON format for Sonar output.
+// This is a machine-processable and partly executable specification for the new JSON format for
+// Sonar output.
 //
 // Comments that are triple-slashed '///' will be extracted and attached to the entity (type, field)
 // following.  The special +preamble comment is emitted as a preamble.
@@ -41,6 +42,42 @@
 /// NOTE: We do not yet collect some interesting cluster configuration data – how nodes, racks,
 /// islands are connected and by what type of interconnect; the type of attached I/O.  Clusters are
 /// added to the database through other APIs.
+///
+/// ## Slurm
+///
+/// The motivation for extracting Slurm data is to obtain data about a job that are not apparent
+/// from process samples, notably data about requested resources and wait time, and to store them in
+/// such a way that they can be correlated with samples for queries and for as long as we need them.
+/// Data already obtained by process sampling are not to be gotten from Slurm, including most
+/// performance data and information about resources that are observably used by the job.
+///
+/// The working hypothesis is that:
+///
+/// - all necessary Slurm data can be extracted from a single node in the cluster, as they only
+///   include data that Slurm collects and stores for itself
+/// - the Slurm data collection can be performed by sampling, ie, by running data collection
+///   periodically using externally available Slurm tools, and not by getting callbacks from Slurm
+///
+/// That does not remove performance constraints, as the Slurm system is already busy and does not
+/// need an extra load from a polling client that runs often.  It does ease performance constraints,
+/// though, as access to the Slurm data store will not impact compute nodes and places a load only
+/// on administrative systems.  Even so, we may not assume that sampling can run very often, as the
+/// data volumes can be quite large.  (`squeue | wc` on fox just now yields 100KB of formatted data.)
+///
+/// In principle, Sonar shall send data about a job at least three times: when the job is created
+/// and enters the PENDING state, when it enters the RUNNING state, and when it has completed (in
+/// any of a number of different states).  At each of those steps, it shall send data that are
+/// available at that time that have not been sent before; this includes data that may have changed
+/// (for example, the Priority may be sent with a PENDING record but if the priority changes later,
+/// it should be sent again the next time a data sample is sent).  In practice, there are two main
+/// complications: Sonar runs as a sampler and may not observe a job in all of those states, and it
+/// may run in a stateless mode in which it will be unable to know whether it has already sent some
+/// information about a job and can avoid sending it again.  (TODO: There is a discussion to be had
+/// about other events: priority changes, job suspension, job resize.)
+///
+/// Therefore, the Slurm data that are transmitted must be assumed by the consumer to be both
+/// partial and potentially redundant.  Data in records with later timestamps generally override
+/// data from earlier records.
 ///
 /// ## Data format overall notes
 ///
@@ -162,13 +199,13 @@ type MetadataObject struct {
 	Producer NonemptyString `json:"producer"`
 
 	/// The semver of the producer
-	Version  NonemptyString `json:"version"`
+	Version NonemptyString `json:"version"`
 
 	/// The data format version
-	Format   uint64 `json:"format"`
+	Format uint64 `json:"format"`
 
 	/// An array of generator-dependent attribute values
-	Attrs    []KVPair `json:"attrs"`
+	Attrs []KVPair `json:"attrs"`
 
 	/// EXPERIMENTAL / UNDERSPECIFIED.  An API token to be used with
 	/// Envelope.Data.Attributes.Cluster, it proves that the producer of the datum was authorized to
@@ -180,23 +217,23 @@ type MetadataObject struct {
 
 type ErrorObject struct {
 	/// Time when the error was generated
-	Time    Timestamp `json:"time"`
+	Time Timestamp `json:"time"`
 
 	/// A sensible English-language error message describing the error
-	Detail  NonemptyString    `json:"detail"`
+	Detail NonemptyString `json:"detail"`
 
 	/// Canonical cluster name for node generating the error
-	Cluster Hostname  `json:"cluster"`
+	Cluster Hostname `json:"cluster"`
 
 	/// name of node generating the error
-	Node    Hostname  `json:"node"`
+	Node Hostname `json:"node"`
 }
 
 /// Carrier of arbitrary attribute data
 
 type KVPair struct {
 	/// A unique key within the array for the attribute
-	Key   NonemptyString `json:"key"`
+	Key NonemptyString `json:"key"`
 
 	/// Some attribute value
 	Value string `json:"value"`
@@ -215,20 +252,20 @@ type KVPair struct {
 
 type SysinfoEnvelope struct {
 	/// Information about the producer and data format
-	Meta   MetadataObject `json:"meta"`
+	Meta MetadataObject `json:"meta"`
 
 	/// Node data, for successful probes
-	Data   *SysinfoData   `json:"data"`
+	Data *SysinfoData `json:"data"`
 
 	/// Error information, for unsuccessful probes
-	Errors []ErrorObject  `json:"errors"`
+	Errors []ErrorObject `json:"errors"`
 }
 
 /// System data, for successful sysinfo probes
 
 type SysinfoData struct {
 	/// Data tag: The value "sysinfo"
-	Type       DataType          `json:"type"`
+	Type DataType `json:"type"`
 
 	/// The node data themselves
 	Attributes SysinfoAttributes `json:"attributes"`
@@ -249,46 +286,46 @@ type SysinfoData struct {
 
 type SysinfoAttributes struct {
 	/// Time the current data were obtained
-	Time           Timestamp `json:"time"`
+	Time Timestamp `json:"time"`
 
 	/// The canonical cluster name
-	Cluster        Hostname `json:"cluster"`
+	Cluster Hostname `json:"cluster"`
 
 	/// The name of the host as it is known to itself
-	Node           Hostname `json:"node"`
+	Node Hostname `json:"node"`
 
 	/// Operating system name (the `sysname` field of `struct utsname`)
-	OsName         NonemptyString `json:"os_name"`
+	OsName NonemptyString `json:"os_name"`
 
 	/// Operating system version (the `release` field of `struct utsname`)
-	OsRelease      NonemptyString `json:"os_release"`
+	OsRelease NonemptyString `json:"os_release"`
 
 	/// Architecture name (the `machine` field of `struct utsname`)
-	Architecture   NonemptyString                   `json:"architecture"`
+	Architecture NonemptyString `json:"architecture"`
 
 	/// Number of CPU sockets
-	Sockets        NonzeroUint                   `json:"sockets"`
+	Sockets NonzeroUint `json:"sockets"`
 
 	/// Number of physical cores per socket
-	CoresPerSocket NonzeroUint                   `json:"cores_per_socket"`
+	CoresPerSocket NonzeroUint `json:"cores_per_socket"`
 
 	/// Number of hyperthreads per physical core
-	ThreadsPerCore NonzeroUint                   `json:"threads_per_core"`
+	ThreadsPerCore NonzeroUint `json:"threads_per_core"`
 
 	/// Manufacturer's model name
-	CpuModel       string                   `json:"cpu_model"`
+	CpuModel string `json:"cpu_model"`
 
 	/// Primary memory in kilobytes
-	Memory         NonzeroUint                   `json:"memory"`
+	Memory NonzeroUint `json:"memory"`
 
 	/// Base64-encoded SVG output of `lstopo`
-	TopoSVG        string                   `json:"topo_svg"`
+	TopoSVG string `json:"topo_svg"`
 
 	/// Per-card information
-	Cards          []SysinfoGpuCard         `json:"cards"`
+	Cards []SysinfoGpuCard `json:"cards"`
 
 	/// Per-software-package information
-	Software       []SysinfoSoftwareVersion `json:"software"`
+	Software []SysinfoSoftwareVersion `json:"software"`
 }
 
 /// Per-card information.
@@ -304,34 +341,34 @@ type SysinfoAttributes struct {
 
 type SysinfoGpuCard struct {
 	/// Local card index, may change at boot
-	Index         uint64 `json:"index"`
+	Index uint64 `json:"index"`
 
 	/// UUID as reported by card.  See notes in preamble
-	UUID          string `json:"uuid"`
+	UUID string `json:"uuid"`
 
 	/// Indicates an intra-system card address, eg PCI address
-	Address       string `json:"address"`
+	Address string `json:"address"`
 
 	/// A keyword, "NVIDIA", "AMD", "Intel" (others TBD)
-	Manufacturer  string `json:"manufacturer"`
+	Manufacturer string `json:"manufacturer"`
 
 	/// Card-dependent, this is the manufacturer's model string
-	Model         string `json:"model"`
+	Model string `json:"model"`
 
 	/// Card-dependent, for NVIDIA this is "Turing", "Volta" etc
-	Architecture  string `json:"architecture"`
+	Architecture string `json:"architecture"`
 
 	/// Card-dependent, the manufacturer's driver string
-	Driver        string `json:"driver"`
+	Driver string `json:"driver"`
 
 	/// Card-dependent, the manufacturer's firmware string
-	Firmware      string `json:"firmware"`
+	Firmware string `json:"firmware"`
 
 	/// GPU memory in kilobytes
-	Memory        uint64 `json:"memory"`
+	Memory uint64 `json:"memory"`
 
 	/// Power limit in watts
-	PowerLimit    uint64 `json:"power_limit"`
+	PowerLimit uint64 `json:"power_limit"`
 
 	/// Max power limit in watts
 	MaxPowerLimit uint64 `json:"max_power_limit"`
@@ -340,7 +377,7 @@ type SysinfoGpuCard struct {
 	MinPowerLimit uint64 `json:"min_power_limit"`
 
 	/// Max clock of compute element
-	MaxCEClock    uint64 `json:"max_ce_clock"`
+	MaxCEClock uint64 `json:"max_ce_clock"`
 
 	/// Max clock of GPU memory
 	MaxMemoryClock uint64 `json:"max_memory_clock"`
@@ -360,10 +397,10 @@ type SysinfoGpuCard struct {
 
 type SysinfoSoftwareVersion struct {
 	/// A unique identifier for the software package
-	Key     NonemptyString `json:"key"`
+	Key NonemptyString `json:"key"`
 
 	/// Human-readable name of the software package
-	Name    string `json:"name"`
+	Name string `json:"name"`
 
 	/// The package's version number, in some package-specific format
 	Version NonemptyString `json:"version"`
@@ -378,20 +415,20 @@ type SysinfoSoftwareVersion struct {
 
 type SampleEnvelope struct {
 	/// Information about the producer and data format
-	Meta   MetadataObject `json:"meta"`
+	Meta MetadataObject `json:"meta"`
 
 	/// Sample data, for successful probes
-	Data   *SampleData    `json:"data"`
+	Data *SampleData `json:"data"`
 
 	/// Error information, for unsuccessful probes
-	Errors []ErrorObject  `json:"errors"`
+	Errors []ErrorObject `json:"errors"`
 }
 
 /// Sample data, for successful sysinfo probes
 
 type SampleData struct {
 	/// Data tag: The value "sample"
-	Type       DataType         `json:"type"`
+	Type DataType `json:"type"`
 
 	/// The sample data themselves
 	Attributes SampleAttributes `json:"attributes"`
@@ -405,22 +442,22 @@ type SampleData struct {
 
 type SampleAttributes struct {
 	/// Time the current data were obtained
-	Time    Timestamp     `json:"time"`
+	Time Timestamp `json:"time"`
 
 	/// The canonical cluster name whence the datum originated
-	Cluster Hostname      `json:"cluster"`
+	Cluster Hostname `json:"cluster"`
 
 	/// The name of the node as it is known to the node itself
-	Node    Hostname      `json:"node"`
+	Node Hostname `json:"node"`
 
 	/// State of the node as a whole
-	System  SampleSystem  `json:"system"`
+	System SampleSystem `json:"system"`
 
 	/// State of jobs on the nodes
-	Jobs    []SampleJob   `json:"jobs"`
+	Jobs []SampleJob `json:"jobs"`
 
 	/// Recoverable errors, if any
-	Errors  []ErrorObject `json:"errors"`
+	Errors []ErrorObject `json:"errors"`
 }
 
 /// This object describes the state of the node independently of the jobs running on it.
@@ -432,13 +469,13 @@ type SampleAttributes struct {
 
 type SampleSystem struct {
 	/// The state of individual cores
-	Cpus       []SampleCpu `json:"cpus"`
+	Cpus []SampleCpu `json:"cpus"`
 
 	/// The state of individual GPU devices
-	Gpus       []SampleGpu `json:"gpus"`
+	Gpus []SampleGpu `json:"gpus"`
 
 	/// The amount of primary memory in use in kilobytes
-	UsedMemory uint64      `json:"used_memory"`
+	UsedMemory uint64 `json:"used_memory"`
 }
 
 /// The number of CPU seconds used by the core since boot.
@@ -461,47 +498,47 @@ type SampleCpu uint64
 
 type SampleGpu struct {
 	/// Local card index, may change at boot
-	Index            uint64 `json:"index"`
+	Index uint64 `json:"index"`
 
 	/// Card UUID.  See preamble for notes about UUIDs.
-	UUID             NonemptyString `json:"uuid"`
+	UUID NonemptyString `json:"uuid"`
 
 	/// If not zero, an error code indicating a card failure state. code=1 is "generic failure".
 	/// Other codes TBD.
-	Failing          uint64 `json:"failing"`
+	Failing uint64 `json:"failing"`
 
 	/// Percent of primary fan's max speed, may exceed 100% on some cards in some cases
-	Fan              uint64 `json:"fan"`
+	Fan uint64 `json:"fan"`
 
 	/// Current compute mode, completely card-specific if known at all
-	ComputeMode      string `json:"compute_mode"`
+	ComputeMode string `json:"compute_mode"`
 
 	/// Current performance level, card-specific >= 0, or unset for "unknown".
-	PerformanceState ExtendedUint   `json:"performance_state"`
+	PerformanceState ExtendedUint `json:"performance_state"`
 
 	/// Memory use in Kilobytes
-	Memory           uint64 `json:"memory"`
+	Memory uint64 `json:"memory"`
 
 	/// Percent of computing element capability used
-	CEUtil           uint64 `json:"ce_util"`
+	CEUtil uint64 `json:"ce_util"`
 
 	/// Percent of memory used
-	MemoryUtil       uint64 `json:"memory_util"`
+	MemoryUtil uint64 `json:"memory_util"`
 
 	/// Degrees C card temperature at primary sensor (note can be negative)
-	Temperature      int64  `json:"temperature"`
+	Temperature int64 `json:"temperature"`
 
 	/// Watts current power usage
-	Power            uint64 `json:"power"`
+	Power uint64 `json:"power"`
 
 	/// Watts current power limit
-	PowerLimit       uint64 `json:"power_limit"`
+	PowerLimit uint64 `json:"power_limit"`
 
 	/// Compute element current clock
-	CEClock          uint64 `json:"ce_clock"`
+	CEClock uint64 `json:"ce_clock"`
 
 	/// memory current clock
-	MemoryClock      uint64 `json:"memory_clock"`
+	MemoryClock uint64 `json:"memory_clock"`
 }
 
 /// Sample data for a single job
@@ -527,16 +564,16 @@ type SampleGpu struct {
 
 type SampleJob struct {
 	/// The job ID
-	Job       uint64          `json:"job"`
+	Job uint64 `json:"job"`
 
 	/// User name on the cluster; `_user_<uid>` if not determined but user ID is available,
 	/// `_user_unknown` otherwise.
-	User      NonemptyString          `json:"user"`
+	User NonemptyString `json:"user"`
 
 	/// Zero for batch jobs, otherwise is a nonzero value that increases (by some amount) when the
 	/// system reboots, and never wraps around. You may think of it as a boot counter for the node,
 	/// but you must not assume that the values observed will be densely packed.  See notes.
-	Epoch     uint64          `json:"epoch"`
+	Epoch uint64 `json:"epoch"`
 
 	/// Processes in the job, all have the same Job ID.
 	Processes []SampleProcess `json:"processes"`
@@ -578,40 +615,40 @@ type SampleJob struct {
 
 type SampleProcess struct {
 	/// Kilobytes of private resident memory.
-	ResidentMemory  uint64             `json:"resident_memory"`
+	ResidentMemory uint64 `json:"resident_memory"`
 
 	/// Kilobytes of virtual data+stack memory
-	VirtualMemory   uint64             `json:"virtual_memory"`
+	VirtualMemory uint64 `json:"virtual_memory"`
 
 	/// The command (not the command line), zombie processes get an extra <defunct> annotation at
 	/// the end, a la ps.
-	Cmd       string             `json:"cmd"`
+	Cmd string `json:"cmd"`
 
 	/// Process ID, zero is used for rolled-up processes.
-	Pid       uint64             `json:"pid"`
+	Pid uint64 `json:"pid"`
 
 	/// Parent-process ID.
-	ParentPid uint64             `json:"ppid"`
+	ParentPid uint64 `json:"ppid"`
 
 	/// The running average CPU percentage over the true lifetime of the process as reported
 	/// by the operating system. 100.0 corresponds to "one full core's worth of computation".
 	/// See notes.
-	CpuAvg    float64            `json:"cpu_avg"`
+	CpuAvg float64 `json:"cpu_avg"`
 
 	/// The current sampled CPU utilization of the process, 100.0 corresponds to "one full core's
 	/// worth of computation". See notes.
-	CpuUtil   float64            `json:"cpu_util"`
+	CpuUtil float64 `json:"cpu_util"`
 
 	/// Cumulative CPU time in seconds for the process over its lifetime. See notes.
-	CpuTime   uint64             `json:"cpu_time"`
+	CpuTime uint64 `json:"cpu_time"`
 
 	/// The number of additional processes in the same cmd and no child processes that have been
 	/// rolled into this one. That is, if the value is 1, the record represents the sum of the data
 	/// for two processes.
-	Rolledup  int                `json:"rolledup"`
+	Rolledup int `json:"rolledup"`
 
 	/// GPU sample data for all cards used by the process.
-	Gpus      []SampleProcessGpu `json:"gpus"`
+	Gpus []SampleProcessGpu `json:"gpus"`
 }
 
 /// Per-process per-gpu sample data.
@@ -633,132 +670,509 @@ type SampleProcess struct {
 
 type SampleProcessGpu struct {
 	/// Local card index, may change at boot
-	Index            uint64 `json:"index"`
+	Index uint64 `json:"index"`
 
 	/// Card UUID.  See preamble for notes about UUIDs.
-	UUID             NonemptyString `json:"uuid"`
+	UUID NonemptyString `json:"uuid"`
 
 	/// The current GPU percentage utilization for the process on the card.
-	GpuUtil    float64 `json:"gpu_util"`
+	GpuUtil float64 `json:"gpu_util"`
 
 	/// The current GPU memory used in kilobytes for the process on the card. See notes.
-	GpuMemory     uint64  `json:"gpu_memory"`
+	GpuMemory uint64 `json:"gpu_memory"`
 
 	/// The current GPU memory usage percentage for the process on the card. See notes.
 	GpuMemoryUtil float64 `json:"gpu_memory_util"`
 }
 
-// JSON representation can be read with ConsumeJSONJobs().
+/// Jobs data are extracted from a single always-up master node on the cluster, and describe jobs
+/// under the control of a central jobs manager.
+///
+/// NOTE: A stateful client can filter the data effectively.  Minimally it can filter against an
+/// in-memory database of job records and the state or fields that have been sent.  The backend must
+/// still be prepared to deal with redundant data as the client might crash and be resurrected, but
+/// we can still keep data volume down.
+///
+/// JSON representation can be read with ConsumeJSONJobs().
 
 type JobsEnvelope struct {
-	Data   *JobsData      `json:"data"`
-	Errors []ErrorObject  `json:"errors"`
-	Meta   MetadataObject `json:"meta"`
+	/// Information about the producer and data format
+	Meta MetadataObject `json:"meta"`
+
+	/// Jobs data, for successful probes
+	Data *JobsData `json:"data"`
+
+	/// Error information, for unsuccessful probes
+	Errors []ErrorObject `json:"errors"`
 }
 
+/// Jobs data, for successful jobs probes
+
 type JobsData struct {
-	Type       DataType       `json:"type"` // DTJobs
+	/// Data tag: The value "jobs"
+	Type DataType `json:"type"`
+
+	/// The jobs data themselves
 	Attributes JobsAttributes `json:"attributes"`
 }
 
+/// A collection of jobs
+///
+/// NOTE: There can eventually be other types of jobs, there will be other fields for them here, and
+/// the decoder will populate the correct field.  Other fields will be nil.
+
 type JobsAttributes struct {
-	Time    Timestamp `json:"time"`
-	Cluster Hostname  `json:"cluster"`
-	// There can eventually be other types of jobs, there will be other fields for them here, and
-	// the decoder will populate the correct field.  Other fields will be nil.
+	/// Time the current data were obtained
+	Time Timestamp `json:"time"`
+
+	/// The canonical cluster name
+	Cluster Hostname `json:"cluster"`
+
+	/// Individual job records.  There may be multiple records per job, one per job step.
 	SlurmJobs []SlurmJob `json:"slurm_jobs"`
 }
 
-// This follows the order of the spec (at the time I write this).  Fields with substructure
-// (AllocTRES, GRESDetail) may have parsers, see other files in this package.
+/// See extensive discussion in the postamble for what motivates the following spec.  In particular,
+/// Job IDs are very complicated.
+///
+/// Fields below mostly carry names and semantics from the Slurm REST API, except where those names
+/// or semantics are unworkable.  (For example, the name field really needs to be job_name.)
+///
+/// NOTE: Fields with substructure (AllocTRES, GRESDetail) may have parsers, see other files in this
+/// package.
+///
+/// NOTE: There may be various ways of getting the data: sacct, scontrol, slurmrestd, or talking to
+/// the database directly.
+///
+/// NOTE: References to "slurm" for the fields below are to the Slurm REST API specification.  That
+/// API is poorly documented and everything here is subject to change.
+///
+/// NOTE: The first four fields, job_id, job_step, job_name, and job_state must be transmitted in
+/// every record.  Other fields depend on the nature and state of the job.  Every field should be
+/// transmitted with the first record for the step that is sent after the field acquires a value.
 
 type SlurmJob struct {
-	JobID          uint64    `json:"job_id"`
-	JobName        string    `json:"job_name"`
-	JobState       string    `json:"job_state"`
-	JobStep        string    `json:"job_step"`
-	ArrayJobID     uint64    `json:"array_job_id"`
-	ArrayTaskID    uint64    `json:"array_task_id"`
-	HetJobID       uint64    `json:"het_job_id"`
-	HetJobOffset   uint64    `json:"het_job_offset"`
-	UserName       string    `json:"user_name"`
-	Account        string    `json:"account"`
-	SubmitTime     Timestamp `json:"submit_time"`
-	Timelimit      ExtendedUint      `json:"time_limit"`
-	Partition      string    `json:"partition"`
-	Reservation    string    `json:"reservation"`
-	NodeList       []string  `json:"nodes"`
-	Priority       ExtendedUint      `json:"priority"`
-	Layout         string    `json:"distribution"`
-	GRESDetail     []string  `json:"gres_detail"`
-	ReqCPUS        uint64    `json:"requested_cpus"`
-	ReqMemoryPerNode uint64    `json:"requested_memory_per_node"`
-	ReqNodes       uint64    `json:"requested_node_count"`
-	MinCPUSPerNode uint64    `json:"minimum_cpus_per_node"`
-	Start          Timestamp `json:"start_time"`
-	Suspended      uint64    `json:"suspend_time"`
-	End            Timestamp `json:"end_time"`
-	ExitCode       uint64    `json:"exit_code"`
-	Sacct          *SacctData `json:"sacct"`
+	/// The Slurm Job ID that directly controls the task that the record describes, in an array or
+	/// het job this is the primitive ID of the subjob.
+	///
+	/// sacct: the part of JobIDRaw before the separator (".", "_", "+").
+	///
+	/// slurm: JOB_INFO.job_id.
+	JobID NonzeroUint `json:"job_id"`
+
+	/// The step identifier for the job identified by job_id.  For the topmost step/stage of a job
+	/// this will be the empty string.  Other values normally have the syntax of unsigned integers,
+	/// but may also be the strings "extern" and "batch".  This field's default value is the empty
+	/// string.
+	///
+	/// NOTE: step 0 and step "empty string" are different, in fact thinking of a normal number-like
+	/// step name as a number may not be very helpful.
+	///
+	/// sacct: the part of JobIDRaw after the separator.
+	///
+	/// slurm: TBD - TODO.
+	JobStep string `json:"job_step"`
+
+	/// The name of the job.
+	///
+	/// sacct: JobName.
+	///
+	/// slurm: JOB_INFO.name.
+	JobName string `json:"job_name"`
+
+	/// The state of the job described by the record, an all-uppercase word from the set PENDING,
+	/// RUNNING, CANCELLED, COMPLETED, DEADLINE, FAILED, OUT_OF_MEMORY, TIMEOUT.
+	///
+	/// sacct: State, though sometimes there's additional information in the output that we will
+	/// discard ("CANCELLED by nnn").
+	///
+	/// slurm: TBD - TODO.
+	JobState NonemptyString `json:"job_state"`
+
+	/// The overarching ID of an array job, see discussion in the postamble.
+	///
+	/// sacct: the n of a JobID of the form `n_m.s`
+	///
+	/// slurm: `JOB_INFO.array_job_id`.
+	ArrayJobID       NonzeroUint  `json:"array_job_id"`
+
+	/// if `array_job_id` is not zero, the array element's index.  Individual elements of an array
+	/// job have their own plain job_id; the `array_job_id` identifies these as part of the same array
+	/// job and the array_task_id identifies their position within the array, see later discussion.
+	///
+	/// sacct: the m of a JobID of the form `n_m.s`.
+	///
+	/// slurm: JOB_INFO.array_task_id.
+	ArrayTaskID      uint64       `json:"array_task_id"`
+
+	/// If not zero, the overarching ID of a heterogenous job.
+	///
+	/// sacct: the n of a JobID of the form `n+m.s`.
+	///
+	/// slurm: `JOB_INFO.het_job_id`.
+	HetJobID         NonzeroUint  `json:"het_job_id"`
+
+	/// If `het_job_id` is not zero, the het job element's index.
+	///
+	/// sacct: the m of a JobID of the form `n+m.s`.
+	///
+	/// slurm: `JOB_INFO.het_job_offset`.
+	HetJobOffset     uint64       `json:"het_job_offset"`
+
+	/// The name of the user running the job.  Important for tracking resources by user.
+	///
+	/// sacct: User.
+	///
+	/// slurm: JOB_INFO.user_name.
+	UserName         string       `json:"user_name"`
+
+	/// The name of the user's account.  Important for tracking resources by account.
+	///
+	/// sacct: Account.
+	///
+	/// slurm: JOB_INFO.account
+	Account          string       `json:"account"`
+
+	/// The time the job was submitted.
+	///
+	/// sacct: Submit.
+	///
+	/// slurm: JOB_INFO.submit_time.
+	SubmitTime       Timestamp    `json:"submit_time"`
+
+	/// The time limit in minutes for the job.
+	///
+	/// sacct: TimelimitRaw.
+	///
+	/// slurm: JOB_INFO.time_limit.
+	Timelimit        ExtendedUint `json:"time_limit"`
+
+	/// The name of the partition to use.
+	///
+	/// sacct: Partition.
+	///
+	/// slurm: JOB_INFO.partiton.
+	Partition        string       `json:"partition"`
+
+	/// The name of the reservation.
+	///
+	/// sacct: Reservation.
+	///
+	/// slurm: JOB_INFO.resv_name.
+	Reservation      string       `json:"reservation"`
+
+	/// The nodes allocated to the job or step.
+	///
+	/// sacct: NodeList.
+	///
+	/// slurm: JOB_INFO.nodes.
+	NodeList         []string     `json:"nodes"`
+
+	/// The job priority.
+	///
+	/// sacct: Priority.
+	///
+	/// slurm: JOB_INFO.priority.
+	Priority         ExtendedUint `json:"priority"`
+
+	/// Requested layout.
+	///
+	/// sacct: Layout.
+	///
+	/// slurm: TBD - TODO
+	Layout           string       `json:"distribution"`
+
+	/// Requested resources. For running jobs, the data can in part be synthesized from process
+	/// samples: we'll know the resources that are being used.
+	///
+	/// sacct: TBD - TODO (probably unavailable).
+	///
+	/// slurm: JOB_INFO.gres_detail.
+	GRESDetail       []string     `json:"gres_detail"`
+
+	/// Number of requested CPUs.
+	///
+	/// sacct: ReqCPUS.
+	///
+	/// slurm: JOB_INFO.cpus
+	///
+	/// TODO: Is this per node?  If so, change the name of the field.
+	ReqCPUS          uint64       `json:"requested_cpus"`
+
+	/// Amount of requested memory.
+	///
+	/// sacct: ReqMem.
+	///
+	/// slurm: JOB_INFO.memory_per_node
+	ReqMemoryPerNode uint64       `json:"requested_memory_per_node"`
+
+	/// Number of requested nodes.
+	///
+	/// sacct: ReqNodes.
+	///
+	/// slurm: JOB_INFO.node_count.
+	ReqNodes         uint64       `json:"requested_node_count"`
+
+	/// TODO: Description.  This may be the same as requested_cpus?
+	///
+	/// sacct: TBD.
+	///
+	/// slurm: JOB_INFO.minimum_cpus_per_node.
+	MinCPUSPerNode   uint64       `json:"minimum_cpus_per_node"`
+
+	/// Time the job started, if started
+	///
+	/// TODO: How to obtain
+	Start            Timestamp    `json:"start_time"`
+
+	/// Number of seconds the job was suspended
+	///
+	/// TODO: How to obtain
+	Suspended        uint64       `json:"suspend_time"`
+
+	/// Time the job ended (or was cancelled), if ended
+	///
+	/// TODO: How to obtain
+	End              Timestamp    `json:"end_time"`
+
+	/// Job exit code, if ended
+	///
+	/// TODO: How to obtain
+	ExitCode         uint64       `json:"exit_code"`
+
+	/// Data specific to sacct output
+	Sacct            *SacctData   `json:"sacct"`
 }
 
+/// SacctData are data aggregated by sacct and available if the sampling was done by sacct (as
+/// opposed to via the Slurm REST API).  The fields are named as they are in the sacct output.
+
 type SacctData struct {
+	/// TODO
 	MinCPU       uint64 `json:"MinCPU"`
+
+	/// Requested resources.  Unknown: is this available while the job is pending, or only when the
+	/// job has started and/or completed?
 	AllocTRES    string `json:"AllocTRES"`
+
+	/// TODO
 	AveCPU       uint64 `json:"AveCPU"`
+
+	/// TODO
 	AveDiskRead  uint64 `json:"AveDiskRead"`
+
+	/// TODO
 	AveDiskWrite uint64 `json:"AveDiskWrite"`
+
+	/// TODO
 	AveRSS       uint64 `json:"AveRSS"`
+
+	/// TODO
 	AveVMSize    uint64 `json:"AveVMSize"`
+
+	/// TODO
 	ElapsedRaw   uint64 `json:"ElapsedRaw"`
+
+	/// TODO
 	SystemCPU    uint64 `json:"SystemCPU"`
+
+	/// TODO
 	UserCPU      uint64 `json:"UserCPU"`
+
+	/// Maximum resident memory during the job's lifetime
 	MaxRSS       uint64 `json:"MaxRSS"`
+
+	/// Maximum virtual memory during the job's lifetime
 	MaxVMSize    uint64 `json:"MaxVMSize"`
 }
 
-// JSON representation can be read with ConsumeJSONCluster().
+/// On clusters that have centralized cluster management (eg Slurm), the Cluster data reveal
+/// information about the cluster as a whole that are not derivable from data about individual nodes
+/// or jobs.
+///
+/// JSON representation can be read with ConsumeJSONCluster().
 
 type ClusterEnvelope struct {
-	Data   *ClusterData   `json:"data"`
-	Errors []ErrorObject  `json:"errors"`
-	Meta   MetadataObject `json:"meta"`
+	/// Information about the producer and data format
+	Meta MetadataObject `json:"meta"`
+
+	/// Node data, for successful probes
+	Data *ClusterData `json:"data"`
+
+	/// Error information, for unsuccessful probes
+	Errors []ErrorObject `json:"errors"`
 }
 
+/// Cluster data, for successful cluster probes
+
 type ClusterData struct {
-	Type       DataType          `json:"type"` // DTCluster
+	/// Data tag: The value "cluster"
+	Type DataType `json:"type"`
+
+	/// The cluster data themselves
 	Attributes ClusterAttributes `json:"attributes"`
 }
 
-// `Slurm` is set if at least some nodes and jobs are managed by Slurm.  All clusters are assumed to
-// have some unmanaged jobs.
+/// Cluster description.
+///
+/// NOTE: All clusters are assumed to have some unmanaged jobs.
 
 type ClusterAttributes struct {
-	Time       Timestamp          `json:"time"`
-	Cluster    Hostname           `json:"cluster"`
-    Slurm      bool               `json:"slurm"`
+	/// Time the current data were obtained
+	Time Timestamp `json:"time"`
+
+	/// The canonical cluster name
+	Cluster Hostname `json:"cluster"`
+
+	/// The `slurm` attribute is true if at least some nodes are under Slurm management.
+	Slurm bool `json:"slurm"`
+
+	/// Descriptions of the partitions on the cluster
 	Partitions []ClusterPartition `json:"partitions"`
-	Nodes      []ClusterNodes     `json:"nodes"`
+
+	/// Descriptions of the managed nodes on the cluster
+	Nodes []ClusterNodes `json:"nodes"`
 }
 
+/// A Partition has a unique name and some nodes.  Nodes may be in multiple partitions.
+
 type ClusterPartition struct {
-	Name  string      `json:"name"`
+	/// Partition name
+	Name NonemptyString `json:"name"`
+
+	/// Nodes in the partition
 	Nodes []NodeRange `json:"nodes"`
 }
 
-// Node state depends on the cluster type.  For Slurm, see sinfo(1), it's a long list.
+/// A managed node is always on some state.  A node may be multiple states, in cluster-dependent
+/// ways (some of them really are "flags" on more general states); we expose as many as possible.
+///
+/// NOTE: Node state depends on the cluster type.  For Slurm, see sinfo(1), it's a long list.
 
 type ClusterNodes struct {
-	Names  []NodeRange `json:"names"`
-	States []string    `json:"states"`
+	/// Constraint: The array of names may not be empty
+	Names []NodeRange `json:"names"`
+
+	/// The state(s) of the nodes in the range.  This is the output of sinfo as for the
+	/// StateComplete specifier, split into individual states, and the state names are always folded
+	/// to upper case.
+	States []string `json:"states"`
 }
 
-/// A nonempty-string representing a list of hostnames compactly using a simple syntax: brackets
-/// introduce a list of individual numbered nodes and ranges, these are expanded to yield a list of
-/// node names.  For example, `c[1-3,5]-[2-4].fox` yields `c1-2.fox`, `c1-3.fox`, `c1-4.fox`,
-/// `c2-2.fox`, `c2-3.fox`, `c2-4.fox`, `c3-2.fox`, `c3-3.fox`, `c3-4.fox`, `c5-2.fox`, `c5-3.fox`,
-/// `c5-4.fox`.  In a valid range, the first number is no greater than the second number, and
-/// numbers are not repeated.  (The motivation for this feature is that some clusters have very many
-/// nodes and that they group well this way.)
+/// A NodeRange is a nonempty-string representing a list of hostnames compactly using a simple
+/// syntax: brackets introduce a list of individual numbered nodes and ranges, these are expanded to
+/// yield a list of node names.  For example, `c[1-3,5]-[2-4].fox` yields `c1-2.fox`, `c1-3.fox`,
+/// `c1-4.fox`, `c2-2.fox`, `c2-3.fox`, `c2-4.fox`, `c3-2.fox`, `c3-3.fox`, `c3-4.fox`, `c5-2.fox`,
+/// `c5-3.fox`, `c5-4.fox`.  In a valid range, the first number is no greater than the second
+/// number, and numbers are not repeated.  (The motivation for this feature is that some clusters
+/// have very many nodes and that they group well this way.)
 
 type NodeRange NonemptyString
+
+///+postamble
+///
+/// ## Slurm Job ID structure
+///
+/// For an array job, the Job ID has the following structure.  When the job is submitted, the job is
+/// assigned an ID, call it J.  The task at each array index K then has the structure J_K.  However,
+/// that is for display purposes.  Underneath, each task is assigned an individual job ID T. My test
+/// job 1467073 with steps, 1, 3, 5, 7, have IDs that are displayed as 1467073_1, 1467073_3, and so
+/// on.  Importantly those jobs have underlying "true" IDs 1467074, 1467075, and so on (not
+/// necessarily densely packed, I expect).
+///
+/// Within the job itself the SLURM_ARRAY_JOB_ID is 1467073 and the SLURM_ARRAY_TASK_ID is 1, 3, 5,
+/// 7, but in addition, the SLURM_JOB_ID is 1467074, 1467075, and so on.
+///
+/// Each of the underlying jobs can themselves have steps.  So there is a record (exposed at least
+/// by sacct) that is called 1467073_1.extern, for that step.
+///
+/// In the data above, we want the job_id to be the "true" underlying ID, the step to be the "true"
+/// job's step, and the array properties to additionally be set when it is an array job.  Hence for
+/// 1467073_1.extern we want job_id=1467074, jobs_step=extern, array_job_id=1467073, and
+/// array_task_id=1.  Here's how we can get that with sacct:
+///
+/// ```
+/// $ sacct --user ec-larstha -P -o User,JobID,JobIDRaw
+/// User        JobID             JobIDRaw
+/// ec-larstha  1467073_1         1467074
+///             1467073_1.batch   1467074.batch
+///             1467073_1.extern  1467074.extern
+///             1467073_1.0       1467074.0
+/// ec-larstha  1467073_3         1467075
+///             1467073_3.batch   1467075.batch
+///             1467073_3.extern  1467075.extern
+///             1467073_3.0       1467075.0
+/// ```
+///
+/// For heterogenous ("het") jobs, the situation is somewhat similar to array jobs, here's one with
+/// two groups:
+///
+/// ```
+/// $ sacct --user ec-larstha -P -o User,JobID,JobIDRaw
+/// User        JobID               JobIDRaw
+/// ec-larstha  1467921+0           1467921
+///             1467921+0.batch     1467921.batch
+///             1467921+0.extern    1467921.extern
+///             1467921+0.0         1467921.0
+/// ec-larstha  1467921+1           1467922
+///             1467921+1.extern    1467922.extern
+///             1467921+1.0         1467922.0
+/// ```
+///
+/// The second hetjob gets its own raw Job ID 1467922.  (Weirdly, so far as I've seen this ID is not
+/// properly exposed in the environment variables that the job sees.  Indeed there seems to be no
+/// way to distinguish from environment variables which hetgroup the job is in.  But this could have
+/// something to do with how I run the jobs, het jobs are fairly involved.)
+///
+/// For jobs with job steps (multiple srun lines in the batch script but nothing else fancy), we get this:
+///
+/// ```
+/// $ sacct --user ec-larstha -P -o User,JobID,JobIDRaw
+/// User        JobID           JobIDRaw
+/// ec-larstha  1470478         1470478
+///             1470478.batch   1470478.batch
+///             1470478.extern  1470478.extern
+///             1470478.0       1470478.0
+///             1470478.1       1470478.1
+///             1470478.2       1470478.2
+/// ```
+///
+/// which is consistent with the previous cases, the step ID follows the . of the JobID or JobIDRaw.
+///
+/// ## The meaning of a Job ID
+///
+/// The job ID is complicated.
+///
+/// We will assume that on a cluster where at least some jobs are controlled by Slurm there is a
+/// single Slurm instance that maintains an increasing job ID for all Slurm jobs and that job IDs
+/// are never recycled (I've heard from admins that things break if one does that, though see
+/// below).  Hence when a job is a Slurm job its job ID identifies any event stream belonging to the
+/// job, no matter when it was collected or what node it ran on, as belonging, and allows those
+/// streams to be merged into a coherent job view.  To do this, all we need to note in the job
+/// record is that it came from a Slurm job.
+///
+/// However, there are non-Slurm jobs (even on Slurm clusters, due to the existence of non-Slurm
+/// nodes and due to other activity worthy of tracking even on Slurm nodes).  The job IDs for these
+/// jobs are collected from their process group IDs, per Posix, and the monitoring component will
+/// collect the data for the processes that belong to the same job on a given node into the same Job
+/// record.  On that node only, the data records for the same job make up the job's event stream.
+/// There are no inter-node jobs of this kind.  However, process group IDs may conflict with Slurm
+/// IDs and it is important to ensure that the records are not confused with each other.
+///
+/// To make this more complicated still, non-Slurm IDs can be reused within a single node.  The
+/// reuse can happen over the long term, when the OS process IDs (and hence the process group IDs)
+/// wrap around, or over the short term, when a machine is rebooted, runs a job, then is rebooted
+/// again, runs another job, and so on (may be a typical pattern for a VM or container, or unstable
+/// nodes).
+///
+/// The monitoring data expose job, epoch, node, and time.  The epoch is a representation of the
+/// node's boot time.  These fields work together as follows (for non-Slurm jobs).  Consider two
+/// records A and B. If A.job != B.job or A.node != B.node or A.epoch != B.epoch then they belong to
+/// different jobs.  Otherwise, we collect all records in which those three fields are the same and
+/// sort them by time.  If B follows A in the timeline and B.time - A.time > t then A and B are in
+/// different jobs (one ends with A and the next starts with B).
+///
+/// A suitable value for t is probably on the order of a few hours, TBD.  Linux has a process ID
+/// space typically around 4e6. Some systems running very many jobs (though not usually HPC systems)
+/// can wrap around pids in a matter of days.  We want t to be shorter than the shortest plausible
+/// wraparound time.

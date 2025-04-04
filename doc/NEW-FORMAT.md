@@ -38,6 +38,42 @@ NOTE: We do not yet collect some interesting cluster configuration data – how 
 islands are connected and by what type of interconnect; the type of attached I/O.  Clusters are
 added to the database through other APIs.
 
+## Slurm
+
+The motivation for extracting Slurm data is to obtain data about a job that are not apparent
+from process samples, notably data about requested resources and wait time, and to store them in
+such a way that they can be correlated with samples for queries and for as long as we need them.
+Data already obtained by process sampling are not to be gotten from Slurm, including most
+performance data and information about resources that are observably used by the job.
+
+The working hypothesis is that:
+
+- all necessary Slurm data can be extracted from a single node in the cluster, as they only
+include data that Slurm collects and stores for itself
+- the Slurm data collection can be performed by sampling, ie, by running data collection
+periodically using externally available Slurm tools, and not by getting callbacks from Slurm
+
+That does not remove performance constraints, as the Slurm system is already busy and does not
+need an extra load from a polling client that runs often.  It does ease performance constraints,
+though, as access to the Slurm data store will not impact compute nodes and places a load only
+on administrative systems.  Even so, we may not assume that sampling can run very often, as the
+data volumes can be quite large.  (`squeue | wc` on fox just now yields 100KB of formatted data.)
+
+In principle, Sonar shall send data about a job at least three times: when the job is created
+and enters the PENDING state, when it enters the RUNNING state, and when it has completed (in
+any of a number of different states).  At each of those steps, it shall send data that are
+available at that time that have not been sent before; this includes data that may have changed
+(for example, the Priority may be sent with a PENDING record but if the priority changes later,
+it should be sent again the next time a data sample is sent).  In practice, there are two main
+complications: Sonar runs as a sampler and may not observe a job in all of those states, and it
+may run in a stateless mode in which it will be unable to know whether it has already sent some
+information about a job and can avoid sending it again.  (TODO: There is a discussion to be had
+about other events: priority changes, job suspension, job resize.)
+
+Therefore, the Slurm data that are transmitted must be assumed by the consumer to be both
+partial and potentially redundant.  Data in records with later timestamps generally override
+data from earlier records.
+
 ## Data format overall notes
 
 The output is a tree structure that is constrained enough to be serialized as
@@ -722,221 +758,553 @@ The current GPU memory usage percentage for the process on the card. See notes.
 
 ### Type: `JobsEnvelope`
 
+Jobs data are extracted from a single always-up master node on the cluster, and describe jobs
+under the control of a central jobs manager.
+
+NOTE: A stateful client can filter the data effectively.  Minimally it can filter against an
+in-memory database of job records and the state or fields that have been sent.  The backend must
+still be prepared to deal with redundant data as the client might crash and be resurrected, but
+we can still keep data volume down.
+
+JSON representation can be read with ConsumeJSONJobs().
+
+#### **`meta`** MetadataObject
+
+Information about the producer and data format
 
 #### **`data`** *JobsData
 
+Jobs data, for successful probes
 
 #### **`errors`** []ErrorObject
 
-
-#### **`meta`** MetadataObject
-
+Error information, for unsuccessful probes
 
 ### Type: `JobsData`
 
+Jobs data, for successful jobs probes
 
 #### **`type`** DataType
 
+Data tag: The value "jobs"
 
 #### **`attributes`** JobsAttributes
 
+The jobs data themselves
 
 ### Type: `JobsAttributes`
 
+A collection of jobs
+
+NOTE: There can eventually be other types of jobs, there will be other fields for them here, and
+the decoder will populate the correct field.  Other fields will be nil.
 
 #### **`time`** Timestamp
 
+Time the current data were obtained
 
 #### **`cluster`** Hostname
 
+The canonical cluster name
+
+#### **`slurm_jobs`** []SlurmJob
+
+Individual job records.  There may be multiple records per job, one per job step.
 
 ### Type: `SlurmJob`
 
+See extensive discussion in the postamble for what motivates the following spec.  In particular,
+Job IDs are very complicated.
 
-#### **`job_id`** uint64
+Fields below mostly carry names and semantics from the Slurm REST API, except where those names
+or semantics are unworkable.  (For example, the name field really needs to be job_name.)
 
+NOTE: Fields with substructure (AllocTRES, GRESDetail) may have parsers, see other files in this
+package.
 
-#### **`job_name`** string
+NOTE: There may be various ways of getting the data: sacct, scontrol, slurmrestd, or talking to
+the database directly.
 
+NOTE: References to "slurm" for the fields below are to the Slurm REST API specification.  That
+API is poorly documented and everything here is subject to change.
 
-#### **`job_state`** string
+NOTE: The first four fields, job_id, job_step, job_name, and job_state must be transmitted in
+every record.  Other fields depend on the nature and state of the job.  Every field should be
+transmitted with the first record for the step that is sent after the field acquires a value.
 
+#### **`job_id`** NonzeroUint
+
+The Slurm Job ID that directly controls the task that the record describes, in an array or
+het job this is the primitive ID of the subjob.
+
+sacct: the part of JobIDRaw before the separator (".", "_", "+").
+
+slurm: JOB_INFO.job_id.
 
 #### **`job_step`** string
 
+The step identifier for the job identified by job_id.  For the topmost step/stage of a job
+this will be the empty string.  Other values normally have the syntax of unsigned integers,
+but may also be the strings "extern" and "batch".  This field's default value is the empty
+string.
 
-#### **`array_job_id`** uint64
+NOTE: step 0 and step "empty string" are different, in fact thinking of a normal number-like
+step name as a number may not be very helpful.
 
+sacct: the part of JobIDRaw after the separator.
+
+slurm: TBD - TODO.
+
+#### **`job_name`** string
+
+The name of the job.
+
+sacct: JobName.
+
+slurm: JOB_INFO.name.
+
+#### **`job_state`** NonemptyString
+
+The state of the job described by the record, an all-uppercase word from the set PENDING,
+RUNNING, CANCELLED, COMPLETED, DEADLINE, FAILED, OUT_OF_MEMORY, TIMEOUT.
+
+sacct: State, though sometimes there's additional information in the output that we will
+discard ("CANCELLED by nnn").
+
+slurm: TBD - TODO.
+
+#### **`array_job_id`** NonzeroUint
+
+The overarching ID of an array job, see discussion in the postamble.
+
+sacct: the n of a JobID of the form `n_m.s`
+
+slurm: `JOB_INFO.array_job_id`.
 
 #### **`array_task_id`** uint64
 
+if `array_job_id` is not zero, the array element's index.  Individual elements of an array
+job have their own plain job_id; the `array_job_id` identifies these as part of the same array
+job and the array_task_id identifies their position within the array, see later discussion.
 
-#### **`het_job_id`** uint64
+sacct: the m of a JobID of the form `n_m.s`.
 
+slurm: JOB_INFO.array_task_id.
+
+#### **`het_job_id`** NonzeroUint
+
+If not zero, the overarching ID of a heterogenous job.
+
+sacct: the n of a JobID of the form `n+m.s`.
+
+slurm: `JOB_INFO.het_job_id`.
 
 #### **`het_job_offset`** uint64
 
+If `het_job_id` is not zero, the het job element's index.
+
+sacct: the m of a JobID of the form `n+m.s`.
+
+slurm: `JOB_INFO.het_job_offset`.
 
 #### **`user_name`** string
 
+The name of the user running the job.  Important for tracking resources by user.
+
+sacct: User.
+
+slurm: JOB_INFO.user_name.
 
 #### **`account`** string
 
+The name of the user's account.  Important for tracking resources by account.
+
+sacct: Account.
+
+slurm: JOB_INFO.account
 
 #### **`submit_time`** Timestamp
 
+The time the job was submitted.
+
+sacct: Submit.
+
+slurm: JOB_INFO.submit_time.
 
 #### **`time_limit`** ExtendedUint
 
+The time limit in minutes for the job.
+
+sacct: TimelimitRaw.
+
+slurm: JOB_INFO.time_limit.
 
 #### **`partition`** string
 
+The name of the partition to use.
+
+sacct: Partition.
+
+slurm: JOB_INFO.partiton.
 
 #### **`reservation`** string
 
+The name of the reservation.
+
+sacct: Reservation.
+
+slurm: JOB_INFO.resv_name.
 
 #### **`nodes`** []string
 
+The nodes allocated to the job or step.
+
+sacct: NodeList.
+
+slurm: JOB_INFO.nodes.
 
 #### **`priority`** ExtendedUint
 
+The job priority.
+
+sacct: Priority.
+
+slurm: JOB_INFO.priority.
 
 #### **`distribution`** string
 
+Requested layout.
+
+sacct: Layout.
+
+slurm: TBD - TODO
 
 #### **`gres_detail`** []string
 
+Requested resources. For running jobs, the data can in part be synthesized from process
+samples: we'll know the resources that are being used.
+
+sacct: TBD - TODO (probably unavailable).
+
+slurm: JOB_INFO.gres_detail.
 
 #### **`requested_cpus`** uint64
 
+Number of requested CPUs.
+
+sacct: ReqCPUS.
+
+slurm: JOB_INFO.cpus
+
+TODO: Is this per node?  If so, change the name of the field.
 
 #### **`requested_memory_per_node`** uint64
 
+Amount of requested memory.
+
+sacct: ReqMem.
+
+slurm: JOB_INFO.memory_per_node
 
 #### **`requested_node_count`** uint64
 
+Number of requested nodes.
+
+sacct: ReqNodes.
+
+slurm: JOB_INFO.node_count.
 
 #### **`minimum_cpus_per_node`** uint64
 
+TODO: Description.  This may be the same as requested_cpus?
+
+sacct: TBD.
+
+slurm: JOB_INFO.minimum_cpus_per_node.
 
 #### **`start_time`** Timestamp
 
+Time the job started, if started
+
+TODO: How to obtain
 
 #### **`suspend_time`** uint64
 
+Number of seconds the job was suspended
+
+TODO: How to obtain
 
 #### **`end_time`** Timestamp
 
+Time the job ended (or was cancelled), if ended
+
+TODO: How to obtain
 
 #### **`exit_code`** uint64
 
+Job exit code, if ended
+
+TODO: How to obtain
 
 #### **`sacct`** *SacctData
 
+Data specific to sacct output
 
 ### Type: `SacctData`
 
+SacctData are data aggregated by sacct and available if the sampling was done by sacct (as
+opposed to via the Slurm REST API).  The fields are named as they are in the sacct output.
 
 #### **`MinCPU`** uint64
 
+TODO
 
 #### **`AllocTRES`** string
 
+Requested resources.  Unknown: is this available while the job is pending, or only when the
+job has started and/or completed?
 
 #### **`AveCPU`** uint64
 
+TODO
 
 #### **`AveDiskRead`** uint64
 
+TODO
 
 #### **`AveDiskWrite`** uint64
 
+TODO
 
 #### **`AveRSS`** uint64
 
+TODO
 
 #### **`AveVMSize`** uint64
 
+TODO
 
 #### **`ElapsedRaw`** uint64
 
+TODO
 
 #### **`SystemCPU`** uint64
 
+TODO
 
 #### **`UserCPU`** uint64
 
+TODO
 
 #### **`MaxRSS`** uint64
 
+Maximum resident memory during the job's lifetime
 
 #### **`MaxVMSize`** uint64
 
+Maximum virtual memory during the job's lifetime
 
 ### Type: `ClusterEnvelope`
 
+On clusters that have centralized cluster management (eg Slurm), the Cluster data reveal
+information about the cluster as a whole that are not derivable from data about individual nodes
+or jobs.
 
-#### **`data`** *ClusterData
-
-
-#### **`errors`** []ErrorObject
-
+JSON representation can be read with ConsumeJSONCluster().
 
 #### **`meta`** MetadataObject
 
+Information about the producer and data format
+
+#### **`data`** *ClusterData
+
+Node data, for successful probes
+
+#### **`errors`** []ErrorObject
+
+Error information, for unsuccessful probes
 
 ### Type: `ClusterData`
 
+Cluster data, for successful cluster probes
 
 #### **`type`** DataType
 
+Data tag: The value "cluster"
 
 #### **`attributes`** ClusterAttributes
 
+The cluster data themselves
 
 ### Type: `ClusterAttributes`
 
+Cluster description.
+
+NOTE: All clusters are assumed to have some unmanaged jobs.
 
 #### **`time`** Timestamp
 
+Time the current data were obtained
 
 #### **`cluster`** Hostname
 
+The canonical cluster name
 
 #### **`slurm`** bool
 
+The `slurm` attribute is true if at least some nodes are under Slurm management.
 
 #### **`partitions`** []ClusterPartition
 
+Descriptions of the partitions on the cluster
 
 #### **`nodes`** []ClusterNodes
 
+Descriptions of the managed nodes on the cluster
 
 ### Type: `ClusterPartition`
 
+A Partition has a unique name and some nodes.  Nodes may be in multiple partitions.
 
-#### **`name`** string
+#### **`name`** NonemptyString
 
+Partition name
 
 #### **`nodes`** []NodeRange
 
+Nodes in the partition
 
 ### Type: `ClusterNodes`
 
+A managed node is always on some state.  A node may be multiple states, in cluster-dependent
+ways (some of them really are "flags" on more general states); we expose as many as possible.
+
+NOTE: Node state depends on the cluster type.  For Slurm, see sinfo(1), it's a long list.
 
 #### **`names`** []NodeRange
 
+Constraint: The array of names may not be empty
 
 #### **`states`** []string
 
+The state(s) of the nodes in the range.  This is the output of sinfo as for the
+StateComplete specifier, split into individual states, and the state names are always folded
+to upper case.
 
 ### Type: `NodeRange`
 
-A nonempty-string representing a list of hostnames compactly using a simple syntax: brackets
-introduce a list of individual numbered nodes and ranges, these are expanded to yield a list of
-node names.  For example, `c[1-3,5]-[2-4].fox` yields `c1-2.fox`, `c1-3.fox`, `c1-4.fox`,
-`c2-2.fox`, `c2-3.fox`, `c2-4.fox`, `c3-2.fox`, `c3-3.fox`, `c3-4.fox`, `c5-2.fox`, `c5-3.fox`,
-`c5-4.fox`.  In a valid range, the first number is no greater than the second number, and
-numbers are not repeated.  (The motivation for this feature is that some clusters have very many
-nodes and that they group well this way.)
+A NodeRange is a nonempty-string representing a list of hostnames compactly using a simple
+syntax: brackets introduce a list of individual numbered nodes and ranges, these are expanded to
+yield a list of node names.  For example, `c[1-3,5]-[2-4].fox` yields `c1-2.fox`, `c1-3.fox`,
+`c1-4.fox`, `c2-2.fox`, `c2-3.fox`, `c2-4.fox`, `c3-2.fox`, `c3-3.fox`, `c3-4.fox`, `c5-2.fox`,
+`c5-3.fox`, `c5-4.fox`.  In a valid range, the first number is no greater than the second
+number, and numbers are not repeated.  (The motivation for this feature is that some clusters
+have very many nodes and that they group well this way.)
+
+
+## Slurm Job ID structure
+
+For an array job, the Job ID has the following structure.  When the job is submitted, the job is
+assigned an ID, call it J.  The task at each array index K then has the structure J_K.  However,
+that is for display purposes.  Underneath, each task is assigned an individual job ID T. My test
+job 1467073 with steps, 1, 3, 5, 7, have IDs that are displayed as 1467073_1, 1467073_3, and so
+on.  Importantly those jobs have underlying "true" IDs 1467074, 1467075, and so on (not
+necessarily densely packed, I expect).
+
+Within the job itself the SLURM_ARRAY_JOB_ID is 1467073 and the SLURM_ARRAY_TASK_ID is 1, 3, 5,
+7, but in addition, the SLURM_JOB_ID is 1467074, 1467075, and so on.
+
+Each of the underlying jobs can themselves have steps.  So there is a record (exposed at least
+by sacct) that is called 1467073_1.extern, for that step.
+
+In the data above, we want the job_id to be the "true" underlying ID, the step to be the "true"
+job's step, and the array properties to additionally be set when it is an array job.  Hence for
+1467073_1.extern we want job_id=1467074, jobs_step=extern, array_job_id=1467073, and
+array_task_id=1.  Here's how we can get that with sacct:
+
+```
+$ sacct --user ec-larstha -P -o User,JobID,JobIDRaw
+User        JobID             JobIDRaw
+ec-larstha  1467073_1         1467074
+1467073_1.batch   1467074.batch
+1467073_1.extern  1467074.extern
+1467073_1.0       1467074.0
+ec-larstha  1467073_3         1467075
+1467073_3.batch   1467075.batch
+1467073_3.extern  1467075.extern
+1467073_3.0       1467075.0
+```
+
+For heterogenous ("het") jobs, the situation is somewhat similar to array jobs, here's one with
+two groups:
+
+```
+$ sacct --user ec-larstha -P -o User,JobID,JobIDRaw
+User        JobID               JobIDRaw
+ec-larstha  1467921+0           1467921
+1467921+0.batch     1467921.batch
+1467921+0.extern    1467921.extern
+1467921+0.0         1467921.0
+ec-larstha  1467921+1           1467922
+1467921+1.extern    1467922.extern
+1467921+1.0         1467922.0
+```
+
+The second hetjob gets its own raw Job ID 1467922.  (Weirdly, so far as I've seen this ID is not
+properly exposed in the environment variables that the job sees.  Indeed there seems to be no
+way to distinguish from environment variables which hetgroup the job is in.  But this could have
+something to do with how I run the jobs, het jobs are fairly involved.)
+
+For jobs with job steps (multiple srun lines in the batch script but nothing else fancy), we get this:
+
+```
+$ sacct --user ec-larstha -P -o User,JobID,JobIDRaw
+User        JobID           JobIDRaw
+ec-larstha  1470478         1470478
+1470478.batch   1470478.batch
+1470478.extern  1470478.extern
+1470478.0       1470478.0
+1470478.1       1470478.1
+1470478.2       1470478.2
+```
+
+which is consistent with the previous cases, the step ID follows the . of the JobID or JobIDRaw.
+
+## The meaning of a Job ID
+
+The job ID is complicated.
+
+We will assume that on a cluster where at least some jobs are controlled by Slurm there is a
+single Slurm instance that maintains an increasing job ID for all Slurm jobs and that job IDs
+are never recycled (I've heard from admins that things break if one does that, though see
+below).  Hence when a job is a Slurm job its job ID identifies any event stream belonging to the
+job, no matter when it was collected or what node it ran on, as belonging, and allows those
+streams to be merged into a coherent job view.  To do this, all we need to note in the job
+record is that it came from a Slurm job.
+
+However, there are non-Slurm jobs (even on Slurm clusters, due to the existence of non-Slurm
+nodes and due to other activity worthy of tracking even on Slurm nodes).  The job IDs for these
+jobs are collected from their process group IDs, per Posix, and the monitoring component will
+collect the data for the processes that belong to the same job on a given node into the same Job
+record.  On that node only, the data records for the same job make up the job's event stream.
+There are no inter-node jobs of this kind.  However, process group IDs may conflict with Slurm
+IDs and it is important to ensure that the records are not confused with each other.
+
+To make this more complicated still, non-Slurm IDs can be reused within a single node.  The
+reuse can happen over the long term, when the OS process IDs (and hence the process group IDs)
+wrap around, or over the short term, when a machine is rebooted, runs a job, then is rebooted
+again, runs another job, and so on (may be a typical pattern for a VM or container, or unstable
+nodes).
+
+The monitoring data expose job, epoch, node, and time.  The epoch is a representation of the
+node's boot time.  These fields work together as follows (for non-Slurm jobs).  Consider two
+records A and B. If A.job != B.job or A.node != B.node or A.epoch != B.epoch then they belong to
+different jobs.  Otherwise, we collect all records in which those three fields are the same and
+sort them by time.  If B follows A in the timeline and B.time - A.time > t then A and B are in
+different jobs (one ends with A and the next starts with B).
+
+A suitable value for t is probably on the order of a few hours, TBD.  Linux has a process ID
+space typically around 4e6. Some systems running very many jobs (though not usually HPC systems)
+can wrap around pids in a matter of days.  We want t to be shorter than the shortest plausible
+wraparound time.
 

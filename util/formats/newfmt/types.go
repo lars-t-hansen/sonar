@@ -775,11 +775,28 @@ type JobsAttributes struct {
 /// NOTE: References to "slurm" for the fields below are to the Slurm REST API specification.  That
 /// API is poorly documented and everything here is subject to change.
 ///
-/// NOTE: The first four fields, job_id, job_step, job_name, and job_state must be transmitted in
-/// every record.  Other fields depend on the nature and state of the job.  Every field should be
-/// transmitted with the first record for the step that is sent after the field acquires a value.
+/// NOTE: If the `delta` field is present then it indicates the record's relationship to other
+/// records.  If 0, it states that the record is a full record that will not be used to resolve
+/// future deltas.  If 1, it is a full record that may be used to resolve future deltas.  If 2, it
+/// is a delta record.  Deltas are always for the same job_id and job_step and always relate to the
+/// most recent previous record sent. (This means we depend on no data loss and a strict timeline.)
+///
+/// Typically, if a record is sent for a PENDING job step then only a few fields will change as the
+/// job goes from PENDING to RUNNING and then to some completed step, and no fields change for a job
+/// stuck in PENDING or one that has reached some completed stage.  Only fields that have changed in
+/// some pertinent way need be transmitted at each of these state transitions.  (Typical data volume
+/// reduction seems to be about 99%.)  Every field should be transmitted with the first record for
+/// the step that is sent after the field acquires a value.
+///
+/// NOTE: Pertinence may itself be controlled by how the client is configured.  For example, the
+/// sacct.ElapsedRaw field will change as a job runs, but may not be transmitted until the job has
+/// been completed, as it is not deemed pertinent until then.
 
 type SlurmJob struct {
+	/// A flag signifying that this is an update to a previous record for the same job ID and step,
+	/// see notes above.
+	Delta uint64 `json:"delta"`
+
 	/// The Slurm Job ID that directly controls the task that the record describes, in an array or
 	/// het job this is the primitive ID of the subjob.
 	///

@@ -63,6 +63,7 @@ sending-window = <duration value>               # default 5m
 compression = <type>                            # default "none"
 dump = bool                                     # default false
 ca-file = <filename>                            # default none
+sasl-password = <string>                        # default none
 ```
 
 The `broker-address` is required and names the address of the broker.  For Kafka it's usually
@@ -82,8 +83,8 @@ the values `gzip`, `snappy`, or `none` and if set to something other than
 
 Setting `dump` to true will cause the Kafka sink to dump all data it is sending on stdout.
 
-The `ca-file` is explained in [HOWTO-KAFKA](HOWTO-KAFKA.md), basically its presence triggers the
-use of TLS for the connection.
+The `ca-file` and `sasl-password` are explained in [HOWTO-KAFKA](HOWTO-KAFKA.md), basically the
+former triggers the use of TLS for the connection and the latter additionally adds authentication.
 
 ### `[sample]` section aka `[ps]` section
 

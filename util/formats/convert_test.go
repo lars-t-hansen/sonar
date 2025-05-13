@@ -17,10 +17,10 @@ func TestOldToNewSysinfo(t *testing.T) {
 	}
 	defer f.Close()
 	var counter int
-	oldfmt.ConsumeJSONSysinfo(f, func (info *oldfmt.SysinfoEnvelope) {
+	oldfmt.ConsumeJSONSysinfo(f, func(info *oldfmt.SysinfoEnvelope) {
 		// Basically, test that it works, but it would be helpful to check
 		// some of the gnarlier fields
-		adapter := newfmt.OldSysinfoAdapter {
+		adapter := newfmt.OldSysinfoAdapter{
 			Cluster: "akebakken.no",
 		}
 		n := newfmt.OldSysinfoToNew(info, adapter)

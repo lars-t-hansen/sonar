@@ -52,10 +52,10 @@ func toNonzeroUint(u uint64) NonzeroUint {
 // TODO: Jobs
 
 type OldSysinfoAdapter struct {
-	Cluster      string			// Must be provided
-	OsName       string			// Default "Linux"
-	OsRelease    string			// Default "4.18.0"
-	Architecture string			// Default "x86_64"
+	Cluster      string // Must be provided
+	OsName       string // Default "Linux"
+	OsRelease    string // Default "4.18.0"
+	Architecture string // Default "x86_64"
 }
 
 var descMatcher = regexp.MustCompile(`^(\d+)x(\d+)( \(hyperthreaded\))?(.*?), \d+ GiB`)

@@ -1,7 +1,9 @@
 // The use case for this is transitional - when we receive new sysinfo but want to store it in old
 // data files.  Note there is no old format for cluster data.
 //
-// The converters return either successful data or error data.
+// The converters return either successful data or OldError error data.  The
+// oldfmt.SlurmErrorEnvelope has a subset of the data for OldError, so just use OldError everywhere
+// here.
 
 package newfmt
 
@@ -179,6 +181,98 @@ func NewSysinfoToOld(d *SysinfoEnvelope) (*oldfmt.SysinfoEnvelope, *OldError) {
 	return o, nil
 }
 
-func NewJobToOld(d *JobsEnvelope) (*oldfmt.SlurmEnvelope, *oldfmt.SlurmErrorEnvelope) {
-	panic("NYI")
+func NewJobToOld(d *JobsEnvelope) (*oldfmt.SlurmEnvelope, *OldError) {
+	if d.Errors != nil {
+		e := d.Errors[0]
+		return nil, &OldError{
+			Version:     string(d.Meta.Version),
+			Timestamp:   string(e.Time),
+			Hostname:    string(e.Node),
+			Description: string(e.Detail),
+		}
+	}
+
+	o := new(oldfmt.SlurmEnvelope)
+	o.Version = string(d.Meta.Version)
+	jobs := make([]oldfmt.SlurmJob, 0)
+	a := d.Data.Attributes
+	dummySacct := new(SacctData)
+	for _, job := range a.SlurmJobs {
+		if job.JobState == "RUNNING" || job.JobState == "PENDING" {
+			continue
+		}
+
+		var jobIDRaw string
+		if job.JobStep != "" {
+			jobIDRaw = fmt.Sprintf("%d.%s", job.JobID, job.JobStep)
+		} else {
+			jobIDRaw = fmt.Sprint(job.JobID)
+		}
+
+		var jobID string
+		if job.ArrayJobID != 0 {
+			// We want <jobid>_<taskid> or <jobid>_<taskid>.<step>
+			if job.JobStep != "" {
+				jobID = fmt.Sprintf("%d_%d.%s", job.ArrayJobID, job.ArrayTaskID, job.JobStep)
+			} else {
+				jobID = fmt.Sprintf("%d_%d", job.ArrayJobID, job.ArrayTaskID)
+			}
+		} else if job.HetJobID != 0 {
+			if job.JobStep != "" {
+				jobID = fmt.Sprintf("%d+%d.%s", job.HetJobID, job.HetJobOffset, job.JobStep)
+			} else {
+				jobID = fmt.Sprintf("%d+%d", job.HetJobID, job.HetJobOffset)
+			}
+		} else {
+			// leave it blank
+		}
+
+		sacct := job.Sacct
+		if sacct == nil {
+			sacct = dummySacct
+		}
+		var timelimit string
+		if job.Timelimit != ExtendedUintUnset {
+			timelimit = fmt.Sprint(job.Timelimit.ToUint())
+		}
+		var priority string
+		if job.Priority != ExtendedUintUnset {
+			priority = fmt.Sprint(job.Priority.ToUint())
+		}
+		jobs = append(jobs, oldfmt.SlurmJob{
+			JobID:        jobID,
+			JobIDRaw:     jobIDRaw,
+			User:         job.UserName,
+			Account:      job.Account,
+			State:        string(job.JobState),
+			Start:        string(job.Start),
+			End:          string(job.End),
+			AveCPU:       fmt.Sprint(sacct.AveCPU),
+			AveDiskRead:  fmt.Sprint(sacct.AveDiskRead),
+			AveDiskWrite: fmt.Sprint(sacct.AveDiskWrite),
+			AveRSS:       fmt.Sprint(sacct.AveRSS),
+			AveVMSize:    fmt.Sprint(sacct.AveVMSize),
+			ElapsedRaw:   fmt.Sprint(sacct.ElapsedRaw),
+			ExitCode:     fmt.Sprint(job.ExitCode),
+			Layout:       string(job.Layout),
+			MaxRSS:       fmt.Sprint(sacct.MaxRSS),
+			MaxVMSize:    fmt.Sprint(sacct.MaxVMSize),
+			MinCPU:       fmt.Sprint(sacct.MinCPU),
+			ReqCPUS:      fmt.Sprint(job.ReqCPUS),
+			ReqMem:       fmt.Sprint(job.ReqMemoryPerNode),
+			ReqNodes:     fmt.Sprint(job.ReqNodes),
+			Reservation:  job.Reservation,
+			Submit:       string(job.SubmitTime),
+			Suspended:    fmt.Sprint(job.Suspended),
+			SystemCPU:    fmt.Sprint(sacct.SystemCPU),
+			TimelimitRaw: timelimit,
+			UserCPU:      fmt.Sprint(sacct.UserCPU),
+			NodeList:     strings.Join(job.NodeList, ","),
+			Partition:    job.Partition,
+			AllocTRES:    sacct.AllocTRES,
+			Priority:     priority,
+			JobName:      job.JobName,
+		})
+	}
+	return o, nil
 }
